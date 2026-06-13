@@ -24,7 +24,7 @@ The **Agentic TP Platform** transforms how students complete practical programmi
 
 ---
 
-## Highlights
+## Highlight
 
 | 🤖 3 Specialized AI Agents | 🦙 100% Local LLMs via Ollama | 🛡️ Anti-Cheat Built-in | 📊 Teacher Analytics |
 | :---: | :---: | :---: | :---: |
