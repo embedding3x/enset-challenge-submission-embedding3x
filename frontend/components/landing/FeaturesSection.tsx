@@ -48,19 +48,17 @@ const features = [
 
 export default function FeaturesSection() {
   return (
-    <section id="features" className="py-24 px-6 bg-[#16213e]">
+    <section id="features" className="py-24 px-6 bg-paneldark">
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-16">
-          <p className="text-sm font-semibold text-[#89b4fa] uppercase tracking-wider mb-3">
+          <p className="text-sm font-semibold text-secondary uppercase tracking-wider mb-3">
             Features
           </p>
-          <h2 className="text-4xl md:text-5xl font-bold text-white mb-4">
+          <h2 className="font-serif text-4xl md:text-5xl font-semibold text-white mb-4">
             Everything You Need for{" "}
-            <span className="bg-clip-text text-transparent bg-gradient-to-r from-[#cba6f7] to-[#89b4fa]">
-              Smart TPs
-            </span>
+            <span className="text-gradient">Smart TPs</span>
           </h2>
-          <p className="text-white/70 text-lg max-w-2xl mx-auto">
+          <p className="text-textmuted text-lg max-w-2xl mx-auto">
             A complete toolkit that empowers educators and engages students through intelligent automation.
           </p>
         </div>
@@ -69,15 +67,15 @@ export default function FeaturesSection() {
           {features.map((feature) => (
             <div
               key={feature.title}
-              className="group p-6 rounded-2xl border border-white/10 bg-[#1a1a2e] hover:border-[#cba6f7]/40 hover:shadow-lg hover:shadow-[#cba6f7]/10 transition-all duration-300"
+              className="group glass-card p-6 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/10 transition-all duration-300"
             >
-              <div className="w-12 h-12 rounded-xl bg-[#0f3460] flex items-center justify-center mb-4 group-hover:bg-[#0f3460]/80 transition-colors">
-                <feature.icon className="w-6 h-6 text-[#cba6f7]" />
+              <div className="w-12 h-12 rounded-xl bg-navactive border border-white/10 flex items-center justify-center mb-4 group-hover:bg-primary/15 transition-colors">
+                <feature.icon className="w-6 h-6 text-primary" />
               </div>
               <h3 className="text-lg font-semibold text-white mb-2">
                 {feature.title}
               </h3>
-              <p className="text-white/70 leading-relaxed">
+              <p className="text-textmuted leading-relaxed">
                 {feature.description}
               </p>
             </div>

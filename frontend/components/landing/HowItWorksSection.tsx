@@ -27,17 +27,15 @@ const steps = [
 
 export default function HowItWorksSection() {
   return (
-    <section id="how-it-works" className="py-24 px-6 bg-[#1a1a2e]">
+    <section id="how-it-works" className="py-24 px-6 bg-appbg">
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-16">
-          <p className="text-sm font-semibold text-[#89b4fa] uppercase tracking-wider mb-3">
+          <p className="text-sm font-semibold text-secondary uppercase tracking-wider mb-3">
             How It Works
           </p>
-          <h2 className="text-4xl md:text-5xl font-bold text-white mb-4">
+          <h2 className="font-serif text-4xl md:text-5xl font-semibold text-white mb-4">
             Simple for Educators,{" "}
-            <span className="bg-clip-text text-transparent bg-gradient-to-r from-[#cba6f7] to-[#89b4fa]">
-              Powerful for Students
-            </span>
+            <span className="text-gradient">Powerful for Students</span>
           </h2>
         </div>
 
@@ -49,8 +47,8 @@ export default function HowItWorksSection() {
                 index % 2 === 1 ? "md:flex-row-reverse" : ""
               }`}
             >
-              <div className="flex-shrink-0 w-20 h-20 rounded-2xl bg-[#0f3460] flex items-center justify-center border border-white/10">
-                <span className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[#cba6f7] to-[#89b4fa]">
+              <div className="flex-shrink-0 w-20 h-20 glass-panel rounded-2xl flex items-center justify-center">
+                <span className="text-3xl font-bold text-gradient">
                   {step.number}
                 </span>
               </div>
@@ -58,7 +56,7 @@ export default function HowItWorksSection() {
                 <h3 className="text-2xl font-bold text-white mb-2">
                   {step.title}
                 </h3>
-                <p className="text-white/70 text-lg leading-relaxed">
+                <p className="text-textmuted text-lg leading-relaxed">
                   {step.description}
                 </p>
               </div>

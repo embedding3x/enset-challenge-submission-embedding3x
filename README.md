@@ -3,7 +3,7 @@
 > **AI-Powered Educational Platform for Programming Practicals**
 > ENSET Challenge — Hackathon Submission · embedding3x
 
-The **Agentic TP Platform** transforms how students complete practical programming assignments (*Travaux Pratiques*). It combines a Next.js workspace, a Spring Cloud microservices backend, and a suite of specialized AI agents — each powered by a different local LLM via Ollama — to deliver a fully guided, intelligent, and academically-honest coding environment.
+The **Agentic TP Platform** transforms how students complete practical programming assignments (*Travaux Pratiques*). It combines a Next.js workspace, a Spring Cloud microservices backend, a Kafka-based async analytics pipeline, and a suite of specialized AI agents — each powered by a different local LLM via Ollama — to deliver a fully guided, intelligent, and academically-honest coding environment. The full stack deploys with Docker Compose or Kubernetes (minikube).
 
 🌐 **Live demo:** https://tp-front-seven.vercel.app/
 
@@ -33,7 +33,9 @@ graph TD
     end
 
     subgraph AgentLayer["🤖 Agentic Layer (FastAPI + LangGraph)"]
-        AGW["Agent Gateway<br/>explain · hint · quiz · evaluate<br/>orchestrate · generate-tp · courses<br/>:8000"]
+        AGW["Agent Gateway<br/>explain · hint · quiz · evaluate<br/>orchestrate · generate-tp<br/>:8000"]
+        RAGS["RAG Service<br/>courses · embeddings · vector search<br/>:8005"]
+        VAL["Validation Service<br/>HTML · CSS · JS · Python checks<br/>:8006"]
         EXP["Explanation Agent<br/>mistral · :8001"]
         HINT["Hint Agent<br/>deepseek-coder:6.7b · :8002"]
         EVAL["Evaluation Agent<br/>gemma4:31b-cloud · :8003"]
@@ -42,12 +44,14 @@ graph TD
 
     subgraph Infra["🗄️ Infrastructure"]
         OLLAMA["Ollama Runtime<br/>:11434"]
-        PG[("PostgreSQL<br/>auth_db · tp_db<br/>:5432")]
+        PG[("PostgreSQL<br/>auth_db · tp_db · rag_db<br/>:5432")]
         KAFKA["Apache Kafka<br/>(async pipeline)"]
     end
 
     FE -->|REST /api/**| GW
     FE -->|REST /api/agents/**| AGW
+    FE -->|REST /api/rag/**| RAGS
+    FE -->|REST /api/validate| VAL
 
     GW --> AUTH
     GW --> TP
@@ -61,6 +65,9 @@ graph TD
     AGW --> HINT
     AGW --> EVAL
     AGW --> ORCH
+    AGW -->|retrieval context| RAGS
+    RAGS --> OLLAMA
+    RAGS --> PG
 
     ORCH -->|delegates| EXP
     ORCH -->|delegates| HINT
@@ -72,6 +79,7 @@ graph TD
     ORCH --> OLLAMA
 
     AGW -.events.-> KAFKA
+    KAFKA -.analytics events.-> TP
 
     classDef frontend fill:#cba6f7,stroke:#6c7086,color:#11111b
     classDef spring fill:#a6e3a1,stroke:#6c7086,color:#11111b
@@ -79,7 +87,7 @@ graph TD
     classDef infra fill:#f9e2af,stroke:#6c7086,color:#11111b
     class FE frontend
     class GW,AUTH,TP,EUREKA spring
-    class AGW,EXP,HINT,EVAL,ORCH agent
+    class AGW,RAGS,VAL,EXP,HINT,EVAL,ORCH agent
     class OLLAMA,PG,KAFKA infra
 ```
 
@@ -287,6 +295,38 @@ sequenceDiagram
 
 ---
 
+## Kafka Async Analytics Pipeline
+
+Every agent interaction is published to Kafka (fire-and-forget — a down broker
+never blocks a student request) and consumed by the TP Service, which persists
+the events and serves them back as teacher analytics.
+
+```mermaid
+graph LR
+    AGW["Agent Gateway<br/>aiokafka producer<br/>(events.py)"]
+    K["Kafka · KRaft single node<br/>agent.interactions<br/>progress.updates<br/>quiz.completed"]
+    TP["TP Service<br/>spring-kafka consumer<br/>(AgentEventListener)"]
+    DB[("tp_db<br/>agent_events")]
+    API["GET /api/analytics/events<br/>GET /api/analytics/summary"]
+
+    AGW -->|publish| K
+    K -->|consume · group agentic-tp-group| TP
+    TP --> DB
+    DB --> API
+```
+
+| Topic | Published on | Retention |
+|-------|--------------|-----------|
+| `agent.interactions` | every `explain` / `hint` / `generate-quiz` / `evaluate` call | 7 days |
+| `progress.updates` | each student progress snapshot (`POST /api/agents/progress`) | 7 days |
+| `quiz.completed` | final quiz score after `evaluate` | 30 days |
+
+- Topics are **created automatically** by the agent gateway on startup ([backend/agent-gateway/events.py](backend/agent-gateway/events.py)).
+- The consumer stores every event in the `agent_events` table (topic, type, sessionId, tpId, raw payload) and exposes it via the Analytics API on the TP Service.
+- Kafka runs in **KRaft mode** (no Zookeeper) — one container in Compose, one StatefulSet in Kubernetes.
+
+---
+
 ## Technology Stack
 
 | Layer | Technology | Details |
@@ -300,8 +340,9 @@ sequenceDiagram
 | **Agent Servers** | FastAPI + uvicorn | One service per agent · Python venv isolation |
 | **LLM Provider** | Ollama (local + cloud relay) | mistral · deepseek-coder:6.7b · gemma4:31b · deepseek-v3.2 |
 | **Database** | PostgreSQL 16 | `auth_db` + `tp_db` via Docker · JSON columns for nested TP data |
-| **Message Bus** | Apache Kafka | Topics defined · async pipeline (optional) |
+| **Message Bus** | Apache Kafka (KRaft, no Zookeeper) | agent-gateway produces (aiokafka) · tp-service consumes (spring-kafka) → `agent_events` analytics |
 | **Containerization** | Docker Compose v2 | All 12 services · shared network · health checks |
+| **Orchestration** | Kubernetes (minikube) | `infra/k8s/` kustomize manifests · `deploy-minikube.sh` |
 
 ---
 
@@ -329,8 +370,10 @@ sequenceDiagram
 │
 ├── backend/
 │   ├── agent-gateway/          # FastAPI router — public AI endpoint
+│   ├── rag-service/            # FastAPI — course docs, embeddings, pgvector search
+│   ├── validation-service/     # FastAPI — multi-language code validation (HTML/CSS/JS/Python)
 │   ├── auth-service/           # Spring Boot 3 — JWT auth, user CRUD
-│   ├── tp-service/             # Spring Boot 3 — TP/Assignment/Progress
+│   ├── tp-service/             # Spring Boot 3 — TP/Assignment/Progress + analytics
 │   ├── api-gateway/            # Spring Cloud Gateway — routing + JWT filter
 │   └── discovery-server/       # Eureka Server — service registry
 │
@@ -350,15 +393,21 @@ sequenceDiagram
 │   │   └── InterpreterPattern/ # Tag-expression tree for HTML validation
 │   └── services/
 │       ├── agentService.ts     # Typed client for all agent endpoints (incl. generate-tp)
-│       └── tpService.ts        # TP/Progress CRUD with localStorage
+│       ├── courseService.ts    # Typed client for the RAG service (courses, search)
+│       ├── analyticsService.ts # Kafka-fed analytics (teacher dashboard)
+│       └── tpService.ts        # TP/Assignment/Progress CRUD (tp-service)
 │
 └── infra/
     ├── docker/
     │   ├── docker-compose.yml  # All 12 services (Compose v2, no version key)
     │   ├── docker-up.sh        # Wrapper script — resolves .env path
-    │   └── init-multi-db.sh    # Creates auth_db + tp_db on first boot
-    └── kafka/
-        └── kafka-config.yml    # Topic definitions (6 topics)
+    │   └── init-multi-db.sh    # Creates auth_db + tp_db + rag_db on first boot
+    ├── kafka/
+    │   └── kafka-config.yml    # Topic reference (created by agent-gateway on boot)
+    └── k8s/
+        ├── deploy-minikube.sh  # Build images in minikube + apply manifests
+        ├── kustomization.yaml  # kubectl apply -k infra/k8s
+        └── *.yaml              # Postgres · Kafka (KRaft) · Spring svcs · agents · frontend
 ```
 
 ---
@@ -374,6 +423,7 @@ sequenceDiagram
 | Ollama | latest | Yes — LLMs |
 | Docker Desktop | latest | Yes — full stack |
 | Java 17 + Maven | ≥ 17 | Optional — Spring Boot |
+| minikube + kubectl | latest | Optional — Kubernetes deploy (Option C) |
 
 ### Pull Ollama Models
 
@@ -399,8 +449,8 @@ cd enset-challenge-submission-embedding3x
 2. Verifies required Ollama models are available
 3. Creates a shared Python `.venv` and installs all agent packages
 4. Installs frontend `node_modules` if needed
-5. Frees any occupied ports (8000–8004, 3000)
-6. Starts 5 Python services in background (one log file each in `logs/`)
+5. Frees any occupied ports (8000–8006, 3000)
+6. Starts 7 Python services in background (one log file each in `logs/`)
 7. Starts Spring Boot services if Java + Maven are available
 8. Starts `next dev` for the frontend
 9. Polls all `/health` endpoints until ready
@@ -435,6 +485,33 @@ cd infra/docker
 
 > The wrapper script automatically passes `--env-file ../../.env` so all variables resolve correctly regardless of your working directory.
 
+### Option C — Kubernetes (minikube)
+
+Full-stack deployment into a local cluster — see [infra/k8s/README.md](infra/k8s/README.md) for details.
+
+```bash
+# Ollama must accept connections from the cluster:
+OLLAMA_HOST=0.0.0.0 ollama serve
+
+# Build all 10 images inside minikube and apply the kustomize manifests:
+./infra/k8s/deploy-minikube.sh
+
+kubectl -n agentic-tp get pods -w   # wait until everything is Ready
+
+# Separate terminal — binds the LoadBalancer services to localhost:
+minikube tunnel
+```
+
+Then open http://localhost:3000 (frontend), http://localhost:8080 (API gateway)
+and http://localhost:8000 (agent gateway) — the same URLs as local dev, served
+from the cluster. `./infra/k8s/deploy-minikube.sh down` tears everything down.
+
+What the script does: builds the images with minikube's Docker daemon, creates
+the `agentic-tp` namespace, generates the `platform-env` Secret from your root
+`.env`, wires an `ollama` Service/Endpoints to your host machine, and runs
+`kubectl apply -k infra/k8s`. Postgres and Kafka run as StatefulSets with
+persistent volumes; all cross-service URLs use in-cluster DNS.
+
 ### Environment Variables (`.env`)
 
 ```bash
@@ -459,13 +536,15 @@ TP_DB_URL=jdbc:postgresql://localhost:5432/tp_db
 | Service | URL | Key Endpoints |
 |---------|-----|---------------|
 | Frontend | http://localhost:3000 | `/` · `/login` · `/student/tp/[id]` · `/teacher/dashboard` |
-| Agent Gateway | http://localhost:8000 | `/api/agents/explain` · `/hint` · `/generate-quiz` · `/evaluate` · `/orchestrate` · `/generate-tp` · `/courses` · `/courses/upload` · `/agents/health` |
+| Agent Gateway | http://localhost:8000 | `/api/agents/explain` · `/hint` · `/generate-quiz` · `/evaluate` · `/orchestrate` · `/generate-tp` · `/agents/health` |
+| RAG Service | http://localhost:8005 | `/api/rag/courses` · `/courses/upload` · `/courses/{id}/reindex` · `/search` · `GET /health` |
+| Validation Service | http://localhost:8006 | `POST /api/validate` (html · css · js/react · ts · python) · `GET /health` |
 | Explanation Agent | http://localhost:8001 | `POST /explain` · `GET /health` |
 | Hint Agent | http://localhost:8002 | `POST /hint` · `GET /health` |
 | Evaluation Agent | http://localhost:8003 | `POST /generate-quiz` · `POST /evaluate` |
 | Orchestrator | http://localhost:8004 | `POST /orchestrate` · `GET /health` |
 | Auth Service | http://localhost:8081 | `POST /api/auth/login` · `/register` · `GET /me` |
-| TP Service | http://localhost:8082 | `GET/POST /api/tps` · `/assignments` · `/progress` |
+| TP Service | http://localhost:8082 | `GET/POST /api/tps` · `/assignments` · `/progress` · `GET /api/analytics/events` · `/api/analytics/summary` |
 | API Gateway | http://localhost:8080 | Routes all `/api/**` traffic |
 | Eureka | http://localhost:8761 | Service registry dashboard |
 
@@ -533,34 +612,31 @@ Timer running.                  Required HTML tags            Score sent to teac
 | One-command start script (`start.sh`) | ✅ Complete |
 | Integration test suite (`test.sh`) | ✅ Complete |
 | Anti-cheat mechanisms | ✅ Complete |
-| Kafka topic configuration | ✅ Defined (async pipeline optional) |
-| pgvector / RAG service | 🟡 Structure created — ingestion pipeline not wired |
+| Kafka async pipeline (producer → consumer → analytics API) | ✅ Complete |
+| Kubernetes manifests + minikube deployment | ✅ Complete |
+| pgvector / RAG service |  ✅ Complete |
 
 ---
 
 ## Current Limitations
 
 - **HTML-only assignments** — backend language support (Python, Java) requires a sandboxed executor
-- **No real-time teacher monitoring** — progress is pulled on page load, not pushed via WebSocket
-- **RAG pipeline** — vector store directory structure exists but document ingestion is not wired
 - **`gemma4:31b-cloud` availability** — requires an Ollama cloud account; quiz generation falls back to static questions if the model is not available
-- **Auth frontend** — login page still uses localStorage mock; connecting to the real auth-service requires updating `authService.ts`
+- **Single-node Kafka & Postgres** — KRaft single broker with replication factor 1 and one Postgres instance; right-sized for a demo, not HA
+- **Ollama outside the cluster** — the k8s deployment reaches Ollama on the host; large models are not scheduled in-cluster
 
 ---
 
 ## Roadmap
 
 **Short-term**
-- Wire the RAG ingestion pipeline (Spring AI + pgvector) — directory structure is ready
-- Connect frontend auth to the real Auth Service JWT flow
-- WebSocket push for real-time teacher monitoring
+- Surface the Kafka-fed analytics API (`/api/analytics/*`) in the teacher dashboard UI
 - Rate limiting and response caching for LLM calls
 
 **Medium-term**
 - Multi-language support via Judge0 / Piston execution sandbox
-- Kafka async agent communication (topics already defined)
 - Code similarity plagiarism detection across cohorts
-- Kubernetes manifests for production deployment
+- Harden the k8s setup for shared clusters (resource limits, HPA, replicated Kafka)
 
 ---
 

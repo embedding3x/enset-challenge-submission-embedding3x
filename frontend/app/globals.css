@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --background: #1a1a2e;
-  --foreground: #cdd6f4;
+  --background: #141724;
+  --foreground: #e2e8f0;
 }
 
 * {
@@ -26,16 +26,16 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #1e1e2e;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #45475a;
-  border-radius: 3px;
+  background: #2a2f4c;
+  border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #585b70;
+  background: #3c4368;
 }
 
 /* Smooth transitions */
@@ -48,4 +48,55 @@ code,
 pre,
 textarea.font-mono {
   font-family: var(--font-geist-mono), "Fira Code", "Cascadia Code", monospace;
+}
+
+/* ── Design-system utilities (per design/*.html mockups) ─────────────── */
+
+.glass-panel {
+  background: rgba(30, 34, 53, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-card {
+  background: rgba(23, 26, 40, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1.5rem;
+}
+
+.btn-gradient {
+  background: linear-gradient(135deg, #a855f7 0%, #3b82f6 100%);
+  color: #ffffff;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.btn-gradient:hover {
+  opacity: 0.9;
+}
+
+.glow-button {
+  box-shadow: 0 0 20px rgba(168, 85, 247, 0.35);
+}
+
+.text-gradient {
+  background: linear-gradient(90deg, #c084fc, #60a5fa);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 10px;
 }

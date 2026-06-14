@@ -1,0 +1,62 @@
+# LoadBalancer so `minikube tunnel` exposes it on localhost:8000
+# (the frontend build points the browser at http://localhost:8000).
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-gateway
+  namespace: agentic-tp
+spec:
+  type: LoadBalancer
+  selector:
+    app: agent-gateway
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-gateway
+  namespace: agentic-tp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-gateway
+  template:
+    metadata:
+      labels:
+        app: agent-gateway
+    spec:
+      containers:
+        - name: agent-gateway
+          image: agentic/agent-gateway:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: platform-env
+          env:
+            - name: AGENT_GATEWAY_PORT
+              value: "8000"
+            - name: EXPLANATION_AGENT_URL
+              value: http://explanation-agent:8001
+            - name: HINT_AGENT_URL
+              value: http://hint-agent:8002
+            - name: EVALUATION_AGENT_URL
+              value: http://evaluation-agent:8003
+            - name: ORCHESTRATOR_URL
+              value: http://orchestrator:8004
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:9092
+            - name: OLLAMA_BASE_URL
+              value: http://ollama:11434
+            # RAG_DATABASE_URL comes from the platform-env secret
+            # (built by deploy-minikube.sh from the root .env credentials).
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 15

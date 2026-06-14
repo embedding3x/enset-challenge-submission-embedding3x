@@ -1,27 +1,27 @@
+import Image from "next/image";
 import Link from "next/link";
-import { Bot } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 
 export default function Navbar() {
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-[#1a1a2e]/80 backdrop-blur-xl border-b border-[#0f3460]/40">
-      <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+    <nav className="fixed top-0 left-0 right-0 z-50 bg-appbg/80 backdrop-blur-xl border-b border-panelborder/60">
+      <div className="max-w-6xl mx-auto px-6 h-20 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
-          <Bot className="w-6 h-6 text-[#cba6f7]" />
-          <span className="text-lg font-bold text-white">AgenticTP</span>
+          <Image
+            src="/logo.png"
+            alt="Agentic TP Platform"
+            width={179}
+            height={120}
+            priority
+            className="h-[4.5rem] w-auto drop-shadow-[0_0_10px_rgba(168,85,247,0.45)]"
+          />
         </Link>
 
-        <div className="hidden md:flex items-center gap-8 text-sm text-white/70">
-          <a
-            href="#features"
-            className="hover:text-white transition-colors"
-          >
+        <div className="hidden md:flex items-center gap-8 text-sm text-textmuted">
+          <a href="#features" className="hover:text-white transition-colors">
             Features
           </a>
-          <a
-            href="#how-it-works"
-            className="hover:text-white transition-colors"
-          >
+          <a href="#how-it-works" className="hover:text-white transition-colors">
             How It Works
           </a>
           <a href="#" className="hover:text-white transition-colors">
@@ -40,7 +40,7 @@ export default function Navbar() {
             Log In
           </Link>
           <Link
-            href="/login"
+            href="/signup"
             className={buttonVariants({ variant: "hero", size: "sm" })}
           >
             Sign Up

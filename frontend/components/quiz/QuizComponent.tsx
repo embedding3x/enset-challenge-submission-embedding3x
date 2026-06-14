@@ -102,8 +102,8 @@ export default function QuizComponent({ tp, studentCode, onComplete }: QuizCompo
   if (phase === "loading") {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-4">
-        <div className="w-10 h-10 border-2 border-[#cba6f7] border-t-transparent rounded-full animate-spin" />
-        <p className="text-[#6c7086] text-sm">
+        <div className="w-10 h-10 border-2 border-[#c084fc] border-t-transparent rounded-full animate-spin" />
+        <p className="text-[#8b92b2] text-sm">
           AI is generating your personalized quiz based on your code...
         </p>
       </div>
@@ -114,28 +114,28 @@ export default function QuizComponent({ tp, studentCode, onComplete }: QuizCompo
   if (phase === "results" && results) {
     const gradeColor =
       results.score >= 80
-        ? "text-[#a6e3a1]"
+        ? "text-[#34d399]"
         : results.score >= 60
-        ? "text-[#f9e2af]"
-        : "text-[#f38ba8]";
+        ? "text-[#fbbf24]"
+        : "text-[#f87171]";
 
     return (
       <div className="space-y-6 px-6 py-6 max-w-2xl mx-auto">
         {/* Score card */}
-        <div className="bg-[#181825] border border-[#313244] rounded-2xl p-6 text-center">
-          <p className="text-[#6c7086] text-sm mb-2">Your Score</p>
+        <div className="bg-[#181b2b] border border-[#2a2f4c] rounded-2xl p-6 text-center">
+          <p className="text-[#8b92b2] text-sm mb-2">Your Score</p>
           <p className={`text-6xl font-bold ${gradeColor}`}>{results.score}%</p>
           <p className={`text-lg font-medium mt-1 ${gradeColor}`}>{results.grade}</p>
-          <p className="text-[#6c7086] text-sm mt-3">
+          <p className="text-[#8b92b2] text-sm mt-3">
             {results.correct} / {results.total} correct
           </p>
         </div>
 
         {/* AI feedback */}
         {results.feedback && (
-          <div className="bg-[#1e1e2e] border border-[#313244] rounded-2xl p-5">
-            <p className="text-xs font-medium text-[#89b4fa] mb-2">AI Feedback</p>
-            <p className="text-sm text-[#cdd6f4] leading-relaxed whitespace-pre-wrap">
+          <div className="bg-[#1e2235] border border-[#2a2f4c] rounded-2xl p-5">
+            <p className="text-xs font-medium text-[#60a5fa] mb-2">AI Feedback</p>
+            <p className="text-sm text-[#e2e8f0] leading-relaxed whitespace-pre-wrap">
               {results.feedback}
             </p>
           </div>
@@ -143,34 +143,34 @@ export default function QuizComponent({ tp, studentCode, onComplete }: QuizCompo
 
         {/* Breakdown */}
         <div className="space-y-3">
-          <p className="text-sm font-medium text-[#cdd6f4]">Answer Breakdown</p>
+          <p className="text-sm font-medium text-[#e2e8f0]">Answer Breakdown</p>
           {results.breakdown.map((item) => (
             <div
               key={item.question_num}
               className={`rounded-xl border p-4 ${
                 item.is_correct
-                  ? "border-[#a6e3a1]/30 bg-[#a6e3a1]/5"
-                  : "border-[#f38ba8]/30 bg-[#f38ba8]/5"
+                  ? "border-[#34d399]/30 bg-[#34d399]/5"
+                  : "border-[#f87171]/30 bg-[#f87171]/5"
               }`}
             >
               <div className="flex items-start gap-2 mb-2">
                 <span className="text-sm shrink-0">
                   {item.is_correct ? "✓" : "✗"}
                 </span>
-                <p className="text-sm font-medium text-[#cdd6f4]">{item.question}</p>
+                <p className="text-sm font-medium text-[#e2e8f0]">{item.question}</p>
               </div>
               {!item.is_correct && (
                 <div className="ml-5 space-y-1">
-                  <p className="text-xs text-[#f38ba8]">
+                  <p className="text-xs text-[#f87171]">
                     Your answer: {item.student_answer}
                   </p>
-                  <p className="text-xs text-[#a6e3a1]">
+                  <p className="text-xs text-[#34d399]">
                     Correct: {item.correct_answer}
                   </p>
                 </div>
               )}
               {item.explanation && (
-                <p className="ml-5 mt-2 text-xs text-[#6c7086] italic">
+                <p className="ml-5 mt-2 text-xs text-[#8b92b2] italic">
                   {item.explanation}
                 </p>
               )}
@@ -191,10 +191,10 @@ export default function QuizComponent({ tp, studentCode, onComplete }: QuizCompo
     <div className="max-w-2xl mx-auto px-6 py-6 space-y-6">
       {/* Progress */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-[#6c7086]">
+        <p className="text-sm text-[#8b92b2]">
           Question {currentQ + 1} of {questions.length}
         </p>
-        <p className="text-sm text-[#6c7086]">
+        <p className="text-sm text-[#8b92b2]">
           {answeredCount} answered
         </p>
       </div>
@@ -207,18 +207,18 @@ export default function QuizComponent({ tp, studentCode, onComplete }: QuizCompo
             onClick={() => setCurrentQ(i)}
             className={`h-2 rounded-full transition-all ${
               i === currentQ
-                ? "w-8 bg-[#cba6f7]"
+                ? "w-8 bg-[#c084fc]"
                 : answers[i] !== -1
-                ? "w-4 bg-[#a6e3a1]"
-                : "w-4 bg-[#313244]"
+                ? "w-4 bg-[#34d399]"
+                : "w-4 bg-[#2a2f4c]"
             }`}
           />
         ))}
       </div>
 
       {/* Question */}
-      <div className="bg-[#181825] border border-[#313244] rounded-2xl p-6">
-        <p className="text-base font-medium text-[#cdd6f4] leading-relaxed">
+      <div className="bg-[#181b2b] border border-[#2a2f4c] rounded-2xl p-6">
+        <p className="text-base font-medium text-[#e2e8f0] leading-relaxed">
           {currentQuestion.question}
         </p>
       </div>
@@ -237,8 +237,8 @@ export default function QuizComponent({ tp, studentCode, onComplete }: QuizCompo
               }}
               className={`w-full text-left px-5 py-4 rounded-xl border transition-all text-sm ${
                 selected
-                  ? "border-[#cba6f7] bg-[#cba6f7]/10 text-[#cba6f7]"
-                  : "border-[#313244] bg-[#181825] text-[#cdd6f4] hover:border-[#45475a] hover:bg-[#1e1e2e]"
+                  ? "border-[#c084fc] bg-[#c084fc]/10 text-[#c084fc]"
+                  : "border-[#2a2f4c] bg-[#181b2b] text-[#e2e8f0] hover:border-[#4a5170] hover:bg-[#1e2235]"
               }`}
             >
               <span className="font-medium mr-3">
@@ -255,11 +255,11 @@ export default function QuizComponent({ tp, studentCode, onComplete }: QuizCompo
         <button
           onClick={handleSubmit}
           disabled={phase === "submitting"}
-          className="w-full py-3 rounded-xl bg-gradient-to-r from-[#cba6f7] to-[#89b4fa] text-[#1a1a2e] font-bold disabled:opacity-50 hover:opacity-90 transition-all flex items-center justify-center gap-2"
+          className="w-full py-3 rounded-xl bg-gradient-to-r from-[#c084fc] to-[#60a5fa] text-[#141724] font-bold disabled:opacity-50 hover:opacity-90 transition-all flex items-center justify-center gap-2"
         >
           {phase === "submitting" ? (
             <>
-              <span className="w-4 h-4 border-2 border-[#1a1a2e] border-t-transparent rounded-full animate-spin" />
+              <span className="w-4 h-4 border-2 border-[#141724] border-t-transparent rounded-full animate-spin" />
               AI is evaluating your answers...
             </>
           ) : (
@@ -269,7 +269,7 @@ export default function QuizComponent({ tp, studentCode, onComplete }: QuizCompo
       )}
 
       {error && (
-        <p className="text-xs text-[#f38ba8] text-center">{error}</p>
+        <p className="text-xs text-[#f87171] text-center">{error}</p>
       )}
     </div>
   );

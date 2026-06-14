@@ -11,3 +11,6 @@ target/
 .running_pids
 .venv/
 venv/
+backend/rag-service/uploads/*
+!backend/rag-service/uploads/.gitkeep
+design/

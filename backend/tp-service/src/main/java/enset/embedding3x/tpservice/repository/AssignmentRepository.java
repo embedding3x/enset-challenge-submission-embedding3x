@@ -13,6 +13,10 @@ public interface AssignmentRepository extends JpaRepository<Assignment, String> 
     List<Assignment> findByAssignedBy(String assignedBy);
     List<Assignment> findByTpId(String tpId);
 
-    @Query("SELECT a FROM Assignment a WHERE a.studentIds LIKE %:studentId%")
+    // Native query: studentIds is stored as a JSON array string (student_ids_json),
+    // so we match the quoted id inside it. JPQL LIKE cannot be used here because
+    // Hibernate applies the List<String> attribute converter to the parameter.
+    @Query(value = "SELECT * FROM assignments WHERE student_ids_json LIKE '%\"' || :studentId || '\"%'",
+           nativeQuery = true)
     List<Assignment> findByStudentIdContaining(@Param("studentId") String studentId);
 }

@@ -1,6 +1,7 @@
 import { TP, TPProgress, Assignment, StepProgress, Evaluation } from "@/types";
 import { authService } from "./authService";
 import { publishProgress } from "./realtimeService";
+import { getEvaluationSettings, totalFailedRuns } from "@/lib/evaluationSettings";
 
 /**
  * TP service — talks to the real tp-service (TPs, assignments, progress)
@@ -241,19 +242,33 @@ export const tpService = {
       ? `formatting ${formatScore}/20`
       : "No code submitted";
 
-    const points = Math.min(100, timeScore + hintScore + codeScore);
+    const rawPoints = Math.min(100, timeScore + hintScore + codeScore);
+
+    // Excessive failed runs penalty (configurable via system settings).
+    const settings = getEvaluationSettings();
+    const failedRuns = totalFailedRuns(progress.steps);
+    const penaltyApplies = failedRuns > settings.failedRunThreshold;
+    const penalty = penaltyApplies ? settings.failedRunPenaltyPercent : 0;
+    const points = Math.max(0, rawPoints - penalty);
+
     const grade =
       points >= 90 ? "A" : points >= 75 ? "B" : points >= 60 ? "C" : points >= 45 ? "D" : "F";
 
-    return {
-      points,
-      grade,
-      factors: [
-        { label: "Time", score: timeScore, max: 30, detail: timeDetail },
-        { label: "Hints", score: hintScore, max: 30, detail: hintDetail },
-        { label: "Code format", score: codeScore, max: 40, detail: codeDetail },
-      ],
-    };
+    const factors = [
+      { label: "Time", score: timeScore, max: 30, detail: timeDetail },
+      { label: "Hints", score: hintScore, max: 30, detail: hintDetail },
+      { label: "Code format", score: codeScore, max: 40, detail: codeDetail },
+    ];
+    if (penaltyApplies) {
+      factors.push({
+        label: "Run penalty",
+        score: -penalty,
+        max: 0,
+        detail: `${failedRuns} failed runs (> ${settings.failedRunThreshold}) → −${penalty}%`,
+      });
+    }
+
+    return { points, grade, factors };
   },
 
   generateExplanation(tp: TP, stepIndex: number): string {

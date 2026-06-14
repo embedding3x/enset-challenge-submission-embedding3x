@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import Image from "next/image";
 import { TP, TPStep } from "@/types";
 import { agentService, ExplainResponse } from "@/services/agentService";
 
@@ -15,6 +16,19 @@ interface ExplanationChatProps {
   tp: TP;
   step: TPStep;
   sessionId?: string;
+}
+
+function BotAvatar({ size = 28 }: { size?: number }) {
+  return (
+    <Image
+      src="/chatbot-logo.png"
+      alt="AI Assistant"
+      width={size}
+      height={size}
+      className="rounded-full object-cover ring-1 ring-primary/50 shrink-0"
+      style={{ width: size, height: size }}
+    />
+  );
 }
 
 export default function ExplanationChat({ tp, step, sessionId }: ExplanationChatProps) {
@@ -150,13 +164,13 @@ export default function ExplanationChat({ tp, step, sessionId }: ExplanationChat
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#181825] rounded-xl border border-[#313244]">
+    <div className="flex flex-col h-full bg-paneldark rounded-xl border border-panelborder">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-[#313244] flex items-center gap-2">
-        <span className="text-lg">🤖</span>
+      <div className="px-4 py-3 border-b border-panelborder flex items-center gap-3">
+        <BotAvatar size={34} />
         <div>
           <p className="text-sm font-medium text-white">Explanation Agent</p>
-          <p className="text-xs text-[#6c7086]">
+          <p className="text-xs text-textmuted">
             {agentAvailable === true
               ? "Mistral — online"
               : agentAvailable === false
@@ -167,10 +181,10 @@ export default function ExplanationChat({ tp, step, sessionId }: ExplanationChat
         <div
           className={`ml-auto w-2 h-2 rounded-full ${
             agentAvailable === true
-              ? "bg-[#a6e3a1]"
+              ? "bg-emerald-400"
               : agentAvailable === false
-              ? "bg-[#f38ba8]"
-              : "bg-[#f9e2af] animate-pulse"
+              ? "bg-red-400"
+              : "bg-amber-400 animate-pulse"
           }`}
         />
       </div>
@@ -178,7 +192,7 @@ export default function ExplanationChat({ tp, step, sessionId }: ExplanationChat
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         {messages.length === 0 && (
-          <div className="text-center text-[#6c7086] text-sm py-8">
+          <div className="text-center text-textmuted text-sm py-8">
             <p>Loading explanation...</p>
           </div>
         )}
@@ -189,27 +203,25 @@ export default function ExplanationChat({ tp, step, sessionId }: ExplanationChat
               msg.role === "user" ? "flex-row-reverse" : "flex-row"
             }`}
           >
-            <div
-              className={`w-7 h-7 rounded-full flex items-center justify-center text-xs shrink-0 ${
-                msg.role === "user"
-                  ? "bg-[#cba6f7]/20 text-[#cba6f7]"
-                  : "bg-[#89b4fa]/20 text-[#89b4fa]"
-              }`}
-            >
-              {msg.role === "user" ? "You" : "AI"}
-            </div>
+            {msg.role === "user" ? (
+              <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs shrink-0 bg-primary/20 text-purple-300">
+                You
+              </div>
+            ) : (
+              <BotAvatar size={28} />
+            )}
             <div
               className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                 msg.role === "user"
-                  ? "bg-[#cba6f7]/15 text-[#cdd6f4] rounded-tr-sm"
-                  : "bg-[#1e1e2e] text-[#cdd6f4] border border-[#313244] rounded-tl-sm"
+                  ? "bg-primary/15 text-textlight rounded-tr-sm"
+                  : "bg-panelbg text-textlight border border-panelborder rounded-tl-sm"
               }`}
             >
               {msg.loading ? (
                 <div className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 bg-[#89b4fa] rounded-full animate-bounce [animation-delay:0ms]" />
-                  <span className="w-1.5 h-1.5 bg-[#89b4fa] rounded-full animate-bounce [animation-delay:150ms]" />
-                  <span className="w-1.5 h-1.5 bg-[#89b4fa] rounded-full animate-bounce [animation-delay:300ms]" />
+                  <span className="w-1.5 h-1.5 bg-secondary rounded-full animate-bounce [animation-delay:0ms]" />
+                  <span className="w-1.5 h-1.5 bg-secondary rounded-full animate-bounce [animation-delay:150ms]" />
+                  <span className="w-1.5 h-1.5 bg-secondary rounded-full animate-bounce [animation-delay:300ms]" />
                 </div>
               ) : (
                 <p className="whitespace-pre-wrap">{msg.content}</p>
@@ -223,7 +235,7 @@ export default function ExplanationChat({ tp, step, sessionId }: ExplanationChat
       {/* Input */}
       <form
         onSubmit={handleSend}
-        className="p-3 border-t border-[#313244] flex gap-2"
+        className="p-3 border-t border-panelborder flex gap-2"
       >
         <input
           type="text"
@@ -231,12 +243,12 @@ export default function ExplanationChat({ tp, step, sessionId }: ExplanationChat
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask a question about this step..."
           disabled={isLoading}
-          className="flex-1 bg-[#1e1e2e] border border-[#313244] rounded-xl px-4 py-2 text-sm text-[#cdd6f4] placeholder-[#6c7086] outline-none focus:border-[#89b4fa] transition-colors disabled:opacity-50"
+          className="flex-1 bg-panelbg border border-panelborder rounded-xl px-4 py-2 text-sm text-textlight placeholder-textmuted/60 outline-none focus:border-secondary transition-colors disabled:opacity-50"
         />
         <button
           type="submit"
           disabled={!input.trim() || isLoading}
-          className="px-4 py-2 bg-[#89b4fa] text-[#1a1a2e] rounded-xl text-sm font-medium disabled:opacity-40 hover:bg-[#89b4fa]/90 transition-all"
+          className="px-4 py-2 btn-gradient rounded-xl text-sm font-medium disabled:opacity-40"
         >
           Send
         </button>

@@ -37,6 +37,10 @@ public class TPService {
                 .estimatedMinutes(data.get("estimatedMinutes") != null
                         ? ((Number) data.get("estimatedMinutes")).intValue() : 30)
                 .starterHTML((String) data.getOrDefault("starterHTML", ""))
+                .language((String) data.getOrDefault("language", "html"))
+                .status((String) data.getOrDefault("status", "published"))
+                .content(castMap(data.get("content")))
+                .antiCheat(data.get("antiCheat") instanceof Boolean b ? b : Boolean.TRUE)
                 .steps(castStepsList(data.get("steps")))
                 .createdBy(createdBy)
                 .build();
@@ -55,6 +59,10 @@ public class TPService {
         if (data.containsKey("estimatedMinutes"))
             tp.setEstimatedMinutes(((Number) data.get("estimatedMinutes")).intValue());
         if (data.containsKey("starterHTML")) tp.setStarterHTML((String) data.get("starterHTML"));
+        if (data.containsKey("language")) tp.setLanguage((String) data.get("language"));
+        if (data.containsKey("status")) tp.setStatus((String) data.get("status"));
+        if (data.containsKey("content")) tp.setContent(castMap(data.get("content")));
+        if (data.get("antiCheat") instanceof Boolean b) tp.setAntiCheat(b);
         if (data.containsKey("steps")) tp.setSteps(castStepsList(data.get("steps")));
         return tpRepository.save(tp);
     }
@@ -74,5 +82,13 @@ public class TPService {
             return (List<Map<String, Object>>) list;
         }
         return List.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> castMap(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return new java.util.HashMap<>();
     }
 }

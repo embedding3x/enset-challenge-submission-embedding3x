@@ -1,0 +1,199 @@
+# The four LangGraph agents. All reach Ollama on the host machine through the
+# `ollama` Service/Endpoints created by deploy-minikube.sh.
+apiVersion: v1
+kind: Service
+metadata:
+  name: explanation-agent
+  namespace: agentic-tp
+spec:
+  selector:
+    app: explanation-agent
+  ports:
+    - port: 8001
+      targetPort: 8001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: explanation-agent
+  namespace: agentic-tp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: explanation-agent
+  template:
+    metadata:
+      labels:
+        app: explanation-agent
+    spec:
+      containers:
+        - name: explanation-agent
+          image: agentic/explanation-agent:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8001
+          envFrom:
+            - secretRef:
+                name: platform-env
+          env:
+            - name: EXPLANATION_AGENT_PORT
+              value: "8001"
+            - name: OLLAMA_BASE_URL
+              value: http://ollama:11434
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 15
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hint-agent
+  namespace: agentic-tp
+spec:
+  selector:
+    app: hint-agent
+  ports:
+    - port: 8002
+      targetPort: 8002
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hint-agent
+  namespace: agentic-tp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hint-agent
+  template:
+    metadata:
+      labels:
+        app: hint-agent
+    spec:
+      containers:
+        - name: hint-agent
+          image: agentic/hint-agent:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8002
+          envFrom:
+            - secretRef:
+                name: platform-env
+          env:
+            - name: HINT_AGENT_PORT
+              value: "8002"
+            - name: OLLAMA_BASE_URL
+              value: http://ollama:11434
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 15
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: evaluation-agent
+  namespace: agentic-tp
+spec:
+  selector:
+    app: evaluation-agent
+  ports:
+    - port: 8003
+      targetPort: 8003
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evaluation-agent
+  namespace: agentic-tp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: evaluation-agent
+  template:
+    metadata:
+      labels:
+        app: evaluation-agent
+    spec:
+      containers:
+        - name: evaluation-agent
+          image: agentic/evaluation-agent:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8003
+          envFrom:
+            - secretRef:
+                name: platform-env
+          env:
+            - name: EVALUATION_AGENT_PORT
+              value: "8003"
+            - name: OLLAMA_BASE_URL
+              value: http://ollama:11434
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8003
+            initialDelaySeconds: 15
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator
+  namespace: agentic-tp
+spec:
+  selector:
+    app: orchestrator
+  ports:
+    - port: 8004
+      targetPort: 8004
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: agentic-tp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orchestrator
+  template:
+    metadata:
+      labels:
+        app: orchestrator
+    spec:
+      containers:
+        - name: orchestrator
+          image: agentic/orchestrator:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8004
+          envFrom:
+            - secretRef:
+                name: platform-env
+          env:
+            - name: ORCHESTRATOR_PORT
+              value: "8004"
+            - name: OLLAMA_BASE_URL
+              value: http://ollama:11434
+            - name: EXPLANATION_AGENT_URL
+              value: http://explanation-agent:8001
+            - name: HINT_AGENT_URL
+              value: http://hint-agent:8002
+            - name: EVALUATION_AGENT_URL
+              value: http://evaluation-agent:8003
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8004
+            initialDelaySeconds: 15
+            periodSeconds: 15

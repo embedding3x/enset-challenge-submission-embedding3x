@@ -4,26 +4,39 @@ Routes frontend requests to the appropriate AI agent services.
 Validates JWT tokens from the Auth Service.
 """
 import os
-import json
-import uuid
-import shutil
+import asyncio
+import logging
+import time
 from typing import Any
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import httpx
 
-import rag
+import events
+import local_sandbox
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../../.env"))
+
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+logger = logging.getLogger("agent-gateway")
 
 EXPLANATION_AGENT_URL = os.getenv("EXPLANATION_AGENT_URL", "http://localhost:8001")
 HINT_AGENT_URL = os.getenv("HINT_AGENT_URL", "http://localhost:8002")
 EVALUATION_AGENT_URL = os.getenv("EVALUATION_AGENT_URL", "http://localhost:8003")
-ORCHESTRATOR_URL = f"http://localhost:{os.getenv('ORCHESTRATOR_PORT', '8004')}"
-AUTH_SERVICE_URL = f"http://localhost:{os.getenv('AUTH_SERVICE_PORT', '8081')}"
+ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", f"http://localhost:{os.getenv('ORCHESTRATOR_PORT', '8004')}")
+AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", f"http://localhost:{os.getenv('AUTH_SERVICE_PORT', '8081')}")
+RAG_SERVICE_URL = os.getenv("RAG_SERVICE_URL", f"http://localhost:{os.getenv('RAG_SERVICE_PORT', '8005')}")
+CREATOR_AGENT_URL = os.getenv("CREATOR_AGENT_URL", f"http://localhost:{os.getenv('CREATOR_AGENT_PORT', '8007')}")
+VALIDATION_SERVICE_URL = os.getenv("VALIDATION_SERVICE_URL", f"http://localhost:{os.getenv('VALIDATION_SERVICE_PORT', '8006')}")
+
+# Code-execution sandbox. The public Piston API is whitelist-only since 2026-02-15,
+# so the default provider is the in-process LOCAL executor (host toolchains). Set
+# SANDBOX_PROVIDER=piston + PISTON_URL to a SELF-HOSTED Piston for isolated/prod use.
+SANDBOX_PROVIDER = os.getenv("SANDBOX_PROVIDER", "local").strip().lower()
+PISTON_URL = os.getenv("PISTON_URL", "http://localhost:2000/api/v2")
 
 app = FastAPI(title="Agent Gateway", version="1.0.0")
 app.add_middleware(
@@ -35,20 +48,16 @@ app.add_middleware(
 
 TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 
-RAG_READY = False
-
 
 @app.on_event("startup")
-def _init_rag() -> None:
-    """Create the pgvector extension + table on boot. RAG degrades gracefully if down."""
-    global RAG_READY
-    try:
-        rag.ensure_schema()
-        RAG_READY = True
-        print("[agent-gateway] RAG vector store ready")
-    except Exception as e:  # noqa: BLE001
-        RAG_READY = False
-        print(f"[agent-gateway] RAG vector store unavailable: {e}")
+async def _init_kafka() -> None:
+    """Connect the Kafka event bus. Events degrade gracefully if the broker is down."""
+    await events.bus.start()
+
+
+@app.on_event("shutdown")
+async def _stop_kafka() -> None:
+    await events.bus.stop()
 
 
 # ─── Real-time progress broadcasting (WebSocket) ─────────────────────────────
@@ -100,9 +109,12 @@ class HintRequest(BaseModel):
     step_title: str
     step_instructions: str
     student_code: str
+    language: str = "html"
     required_tags: list[str] = []
+    error_output: str = ""
     hints_already_given: int = 0
     previous_hints: list[str] = []
+    attempt_number: int = 0
     session_id: str | None = None
 
 
@@ -139,12 +151,35 @@ class OrchestrateRequest(BaseModel):
 
 
 class GenerateTPRequest(BaseModel):
-    prompt: str
+    prompt: str = ""
+    # The programming language is the highest-priority constraint.
+    prog_language: str = "python"
+    # Prose language of the generated text (fr / en).
+    ui_language: str = "fr"
     difficulty: str = "intermediate"
     step_count: int = 4
-    language: str = "fr"
+    questions_per_step: int = 2
     file_names: list[str] = []
     course_ids: list[str] = []
+    session_id: str | None = None
+
+
+class EnhanceTPRequest(BaseModel):
+    tp: dict[str, Any]
+    prog_language: str = "python"
+    ui_language: str = "fr"
+    instructions: str | None = None
+    session_id: str | None = None
+
+
+class RegenerateSectionRequest(BaseModel):
+    section: str
+    tp: dict[str, Any]
+    prog_language: str = "python"
+    ui_language: str = "fr"
+    difficulty: str = "intermediate"
+    step_count: int = 4
+    questions_per_step: int = 2
     session_id: str | None = None
 
 
@@ -165,6 +200,22 @@ def _proxy(method: str, url: str, payload: dict) -> dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def _aproxy(method: str, url: str, payload: dict | None = None) -> dict:
+    """Async proxy to a downstream agent service, preserving error semantics."""
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await getattr(client, method)(url, json=payload) if payload is not None \
+                else await getattr(client, method)(url)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail=f"Agent service unreachable: {url}")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -181,6 +232,8 @@ async def agents_health():
         "hint-agent": f"{HINT_AGENT_URL}/health",
         "evaluation-agent": f"{EVALUATION_AGENT_URL}/health",
         "orchestrator": f"{ORCHESTRATOR_URL}/health",
+        "creator-agent": f"{CREATOR_AGENT_URL}/health",
+        "rag-service": f"{RAG_SERVICE_URL}/health",
     }
     async with httpx.AsyncClient(timeout=5.0) as client:
         for name, url in urls.items():
@@ -192,28 +245,125 @@ async def agents_health():
     return {"agents": statuses}
 
 
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
+
+async def _probe(client: httpx.AsyncClient, name: str, url: str, kind: str) -> dict:
+    """Ping a dependency once and return its status + round-trip latency."""
+    started = time.monotonic()
+    try:
+        resp = await client.get(url)
+        ms = round((time.monotonic() - started) * 1000)
+        ok = resp.status_code == 200
+        info: dict[str, Any] = {}
+        if ok and "application/json" in resp.headers.get("content-type", ""):
+            body = resp.json()
+            if isinstance(body, dict):
+                info = {k: body[k] for k in ("model", "service", "vector_store") if k in body}
+        return {"name": name, "kind": kind, "status": "up" if ok else "degraded",
+                "latency_ms": ms, "url": url, **info}
+    except Exception as e:  # noqa: BLE001
+        return {"name": name, "kind": kind, "status": "down",
+                "latency_ms": round((time.monotonic() - started) * 1000),
+                "url": url, "error": str(e)[:160]}
+
+
+def _sandbox_status() -> dict:
+    """Report the active sandbox provider's status without an HTTP round-trip for
+    the local provider (it lists which languages can actually run here)."""
+    if SANDBOX_PROVIDER == "piston":
+        return {}  # probed over HTTP below
+    avail = local_sandbox.supported_languages()
+    runnable = sorted(k for k, v in avail.items() if v)
+    return {
+        "name": "sandbox (local)", "kind": "sandbox",
+        "status": "up" if runnable else "degraded", "latency_ms": 0,
+        "url": "in-process", "model": f"{len(runnable)} languages: {', '.join(runnable) or 'none installed'}",
+    }
+
+
+@app.get("/api/agents/status")
+async def platform_status():
+    """
+    Aggregated health for the admin/debug panel: every agent, the LLM backend
+    (Ollama) and the code-execution sandbox, each with latency.
+    """
+    targets = [
+        ("agent-gateway", f"http://localhost:{os.getenv('AGENT_GATEWAY_PORT', '8000')}/health", "gateway"),
+        ("creator-agent", f"{CREATOR_AGENT_URL}/health", "llm-agent"),
+        ("hint-agent", f"{HINT_AGENT_URL}/health", "llm-agent"),
+        ("explanation-agent", f"{EXPLANATION_AGENT_URL}/health", "llm-agent"),
+        ("evaluation-agent", f"{EVALUATION_AGENT_URL}/health", "llm-agent"),
+        ("orchestrator", f"{ORCHESTRATOR_URL}/health", "llm-agent"),
+        ("validation-service", f"{VALIDATION_SERVICE_URL}/health", "validation"),
+        ("rag-service", f"{RAG_SERVICE_URL}/health", "rag"),
+        ("ollama", f"{OLLAMA_BASE_URL}/api/tags", "llm-backend"),
+    ]
+    if SANDBOX_PROVIDER == "piston":
+        targets.append(("sandbox (piston)", f"{PISTON_URL}/runtimes", "sandbox"))
+    async with httpx.AsyncClient(timeout=6.0) as client:
+        services = list(await asyncio.gather(*[_probe(client, n, u, k) for n, u, k in targets]))
+    if SANDBOX_PROVIDER != "piston":
+        services.append(_sandbox_status())
+    overall = "ok" if all(s["status"] == "up" for s in services) else (
+        "degraded" if any(s["status"] == "up" for s in services) else "down")
+    return {"overall": overall, "provider": SANDBOX_PROVIDER,
+            "checked_at": datetime.now(timezone.utc).isoformat(), "services": services}
+
+
 @app.post("/api/agents/explain")
 async def explain(req: ExplainRequest):
     """Route to Explanation Agent (Mistral)."""
-    return _proxy("post", f"{EXPLANATION_AGENT_URL}/explain", req.model_dump())
+    result = _proxy("post", f"{EXPLANATION_AGENT_URL}/explain", req.model_dump())
+    await events.emit_interaction(
+        "explain", "explanation-agent", req.session_id,
+        {"tpId": req.tp_id, "stepId": req.step_id},
+    )
+    return result
 
 
 @app.post("/api/agents/hint")
 async def hint(req: HintRequest):
     """Route to Hint Agent (deepseek-coder:6.7b via Ollama)."""
-    return _proxy("post", f"{HINT_AGENT_URL}/hint", req.model_dump())
+    result = _proxy("post", f"{HINT_AGENT_URL}/hint", req.model_dump())
+    await events.emit_interaction(
+        "hint", "hint-agent", req.session_id,
+        {"stepId": req.step_id, "hintLevel": req.hints_already_given + 1},
+    )
+    return result
 
 
 @app.post("/api/agents/generate-quiz")
 async def generate_quiz(req: GenerateQuizRequest):
     """Route to Evaluation Agent — generate quiz questions."""
-    return _proxy("post", f"{EVALUATION_AGENT_URL}/generate-quiz", req.model_dump())
+    result = _proxy("post", f"{EVALUATION_AGENT_URL}/generate-quiz", req.model_dump())
+    await events.emit_interaction(
+        "generate_quiz", "evaluation-agent", req.session_id,
+        {"tpId": req.tp_id, "numQuestions": req.num_questions},
+    )
+    return result
 
 
 @app.post("/api/agents/evaluate")
 async def evaluate(req: EvaluateAnswersRequest):
     """Route to Evaluation Agent — score quiz answers."""
-    return _proxy("post", f"{EVALUATION_AGENT_URL}/evaluate", req.model_dump())
+    result = _proxy("post", f"{EVALUATION_AGENT_URL}/evaluate", req.model_dump())
+    await events.emit_interaction(
+        "evaluate", "evaluation-agent", req.session_id,
+        {"tpId": req.tp_id, "numQuestions": len(req.questions)},
+    )
+    await events.bus.emit(
+        events.TOPIC_QUIZ_COMPLETED,
+        {
+            "sessionId": req.session_id,
+            "tpId": req.tp_id,
+            "tpTitle": req.tp_title,
+            "score": result.get("score"),
+            "numQuestions": len(req.questions),
+        },
+        key=req.session_id,
+    )
+    return result
 
 
 @app.post("/api/agents/orchestrate")
@@ -223,188 +373,243 @@ async def orchestrate(req: OrchestrateRequest):
 
 
 
+async def _retrieve_rag_context(prompt: str, course_ids: list[str]) -> list[dict]:
+    """Pull retrieval context from the RAG service; degrade gracefully if down."""
+    if not course_ids:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{RAG_SERVICE_URL}/api/rag/search",
+                json={"query": prompt or "course content", "course_ids": course_ids, "k": 6},
+            )
+            resp.raise_for_status()
+            hits = resp.json().get("results", [])
+        return [
+            {"name": h["course_name"], "excerpt": h["content"], "score": h["score"]}
+            for h in hits
+        ]
+    except Exception as e:  # noqa: BLE001
+        print(f"[agent-gateway] RAG retrieval failed: {e}")
+        return []
+
+
+@app.get("/api/agents/languages")
+async def supported_languages():
+    """List the programming languages the Creator Agent supports."""
+    return await _aproxy("get", f"{CREATOR_AGENT_URL}/languages")
+
+
 @app.post("/api/agents/generate-tp")
 async def generate_tp(req: GenerateTPRequest):
     """
-    Ask the Orchestrator (DeepSeek v3) to generate a full TP environment.
-    The prompt and any indexed course context are forwarded; the orchestrator
-    returns a structured TP object ready to be saved by tpService.
+    Route TP generation to the Creator Agent (qwen2.5-coder).
+
+    The gateway gathers RAG context from indexed courses and forwards the request;
+    the Creator Agent returns a structured, university-level draft (status="draft")
+    ready for the teacher's Human-in-the-Loop review. A 5xx from the agent lets the
+    frontend fall back to its local, language-aware draft builder.
     """
-    context = {
+    rag_context = await _retrieve_rag_context(req.prompt, req.course_ids)
+    body = {
         "prompt": req.prompt,
+        "prog_language": req.prog_language,
+        "ui_language": req.ui_language,
         "difficulty": req.difficulty,
         "step_count": req.step_count,
-        "language": req.language,
+        "questions_per_step": req.questions_per_step,
+        "rag_context": rag_context,
         "file_names": req.file_names,
-        "course_ids": req.course_ids,
+        "session_id": req.session_id,
     }
-    if req.course_ids and RAG_READY:
-        try:
-            hits = rag.search(req.prompt or "course content", course_ids=req.course_ids, k=6)
-            if hits:
-                context["rag_context"] = [
-                    {"name": h["course_name"], "excerpt": h["content"], "score": h["score"]}
-                    for h in hits
-                ]
-        except Exception as e:  # noqa: BLE001
-            print(f"[agent-gateway] RAG retrieval failed: {e}")
-
-    action = (
-        f"Generate a complete HTML TP (Travaux Pratiques) environment in language '{req.language}'. "
-        f"Difficulty: {req.difficulty}. Number of steps: {req.step_count}. "
-        f"Teacher prompt: {req.prompt or '(none)'}. "
-        f"Return a JSON object with: title, description, difficulty, estimatedMinutes, starterHTML, "
-        f"and steps array (each step: id, title, instructions, requiredTags[], quiz[])."
+    result = await _aproxy("post", f"{CREATOR_AGENT_URL}/generate", body)
+    await events.emit_interaction(
+        "generate_tp", "creator-agent", req.session_id,
+        {"language": req.prog_language, "difficulty": req.difficulty},
     )
-    result = _proxy("post", f"{ORCHESTRATOR_URL}/orchestrate", {"action": action, "context": context, "session_id": req.session_id})
-    return {"tp": result.get("result", result), "agent": "orchestrator", "model": "deepseek-v3", "used_rag": bool(context.get("rag_context"))}
+    return {**result, "used_rag": bool(rag_context)}
 
 
+@app.post("/api/agents/enhance-tp")
+async def enhance_tp(req: EnhanceTPRequest):
+    """Route HITL refinement to the Creator Agent; result has status='enhanced'."""
+    return await _aproxy("post", f"{CREATOR_AGENT_URL}/enhance", req.model_dump())
 
-COURSES_FILE = os.path.join(os.path.dirname(__file__), "courses_store.json")
-UPLOADS_DIR = os.path.join(os.path.dirname(__file__), "uploads")
+
+@app.post("/api/agents/regenerate-section")
+async def regenerate_section(req: RegenerateSectionRequest):
+    """Route single-section regeneration to the Creator Agent."""
+    return await _aproxy("post", f"{CREATOR_AGENT_URL}/regenerate-section", req.model_dump())
 
 
-def _load_courses() -> list[dict]:
-    if not os.path.exists(COURSES_FILE):
-        return []
-    with open(COURSES_FILE) as f:
+# ─── Multi-language code execution (live display) ────────────────────────────
+
+# Our language ids → candidate Piston runtime names (first available wins) and
+# the source filename the runtime expects (matters for compiled languages).
+_PISTON_LANGS: dict[str, dict[str, Any]] = {
+    "python": {"names": ["python"], "file": "main.py"},
+    "javascript": {"names": ["javascript", "node"], "file": "main.js"},
+    "typescript": {"names": ["typescript"], "file": "main.ts"},
+    "java": {"names": ["java"], "file": "Main.java"},
+    "c": {"names": ["c"], "file": "main.c"},
+    "cpp": {"names": ["c++", "cpp"], "file": "main.cpp"},
+    "csharp": {"names": ["csharp", "csharp.net", "mono", "c#"], "file": "main.cs"},
+    "php": {"names": ["php"], "file": "main.php"},
+    "go": {"names": ["go"], "file": "main.go"},
+    "rust": {"names": ["rust"], "file": "main.rs"},
+    "kotlin": {"names": ["kotlin"], "file": "main.kt"},
+    "dart": {"names": ["dart"], "file": "main.dart"},
+}
+
+_runtime_cache: dict[str, str] = {}  # piston language name → version
+
+EXECUTABLE_LANGUAGES = sorted(_PISTON_LANGS.keys())
+SANDBOX_RETRIES = int(os.getenv("SANDBOX_RETRIES", "2"))
+
+
+class ExecuteRequest(BaseModel):
+    language: str
+    code: str
+    stdin: str = ""
+
+
+class SandboxError(Exception):
+    """Carries a machine-readable `kind` so callers can give users a precise reason."""
+
+    def __init__(self, kind: str, message: str, status: int = 502):
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
+        self.status = status
+
+
+async def _resolve_runtime(client: httpx.AsyncClient, names: list[str]) -> tuple[str, str]:
+    """Resolve our candidate names to a (piston_language, version) Piston supports."""
+    if not _runtime_cache:
+        resp = await client.get(f"{PISTON_URL}/runtimes")
+        resp.raise_for_status()
+        for rt in resp.json():
+            for key in [rt.get("language"), *rt.get("aliases", [])]:
+                if key:
+                    _runtime_cache[key] = rt.get("version", "*")
+    for name in names:
+        if name in _runtime_cache:
+            return name, _runtime_cache[name]
+    raise SandboxError("unsupported_language", f"No sandbox runtime for {names}", status=400)
+
+
+async def _run_piston(language: str, code: str, stdin: str = "") -> dict:
+    """
+    Execute code in a (self-hosted) Piston sandbox. Returns a structured result
+    with `kind` success|compile_error|runtime_error. Transient failures (connect
+    errors, 429, 5xx) are retried with backoff.
+    """
+    lang = language.strip().lower()
+    spec = _PISTON_LANGS.get(lang)
+    if spec is None:
+        raise SandboxError("unsupported_language", f"Execution not supported for '{language}'", status=400)
+
+    last_exc: Exception | None = None
+    for attempt in range(SANDBOX_RETRIES + 1):
         try:
-            return json.load(f)
-        except (json.JSONDecodeError, ValueError):
-            return []
-
-
-def _save_courses(courses: list[dict]) -> None:
-    with open(COURSES_FILE, "w") as f:
-        json.dump(courses, f, ensure_ascii=False, indent=2)
-
-
-@app.get("/api/agents/courses")
-def list_courses():
-    """List all uploaded course documents."""
-    return {"courses": _load_courses()}
-
-
-def _upsert_course(record: dict) -> None:
-    courses = _load_courses()
-    existing = next((i for i, c in enumerate(courses) if c.get("id") == record["id"]), None)
-    if existing is not None:
-        courses[existing] = record
+            async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
+                piston_lang, version = await _resolve_runtime(client, spec["names"])
+                resp = await client.post(
+                    f"{PISTON_URL}/execute",
+                    json={
+                        "language": piston_lang,
+                        "version": version,
+                        "files": [{"name": spec["file"], "content": code}],
+                        "stdin": stdin,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            break
+        except httpx.TimeoutException as e:
+            last_exc = e
+            logger.warning("sandbox timeout (attempt %d) lang=%s", attempt + 1, lang)
+        except httpx.HTTPStatusError as e:
+            last_exc = e
+            # 429/5xx are transient; 4xx are not worth retrying.
+            if e.response.status_code not in (429, 500, 502, 503, 504):
+                raise SandboxError("sandbox_error", f"Sandbox rejected request: {e.response.text[:300]}", status=502)
+            logger.warning("sandbox %s (attempt %d)", e.response.status_code, attempt + 1)
+        except (httpx.ConnectError, httpx.ReadError) as e:
+            last_exc = e
+            logger.warning("sandbox unreachable (attempt %d): %s", attempt + 1, e)
+        if attempt < SANDBOX_RETRIES:
+            await asyncio.sleep(0.6 * (attempt + 1))
     else:
-        courses.append(record)
-    _save_courses(courses)
+        if isinstance(last_exc, httpx.TimeoutException):
+            raise SandboxError("timeout", "Code execution timed out in the sandbox.", status=504)
+        raise SandboxError("sandbox_unreachable",
+                           f"Could not reach the execution sandbox ({PISTON_URL}).", status=503)
 
-
-def _index_document(cid: str, name: str, path: str, size: int) -> dict:
-    """Run the real RAG pipeline and return the updated course record."""
-    record = {
-        "id": cid,
-        "name": name,
-        "path": path,
-        "size": size,
-        "uploadedAt": datetime.now(timezone.utc).isoformat(),
-        "status": "indexing",
-        "chunks": 0,
-        "excerpt": "",
+    run = data.get("run", {}) or {}
+    compile_ = data.get("compile", {}) or {}
+    compile_out = (compile_.get("stderr", "") or compile_.get("output", "")).strip()
+    exit_code = run.get("code", 0) or 0
+    if compile_out and (compile_.get("code", 0) or 0) != 0:
+        kind = "compile_error"
+    elif exit_code != 0:
+        kind = "runtime_error"
+    else:
+        kind = "success"
+    return {
+        "ok": kind == "success",
+        "kind": kind,
+        "language": lang,
+        "version": data.get("version", ""),
+        "stdout": run.get("stdout", "") or "",
+        "stderr": run.get("stderr", "") or "",
+        "output": run.get("output", "") or "",
+        "compile_output": compile_out,
+        "exit_code": exit_code,
     }
-    if not RAG_READY:
-        record["status"] = "error"
-        record["error"] = "Vector store unavailable"
-        _upsert_course(record)
-        return record
 
+
+async def _run_local(language: str, code: str, stdin: str = "") -> dict:
+    """Execute code with host toolchains (default provider). Off-loads the
+    blocking subprocess work to a thread so the event loop stays responsive."""
     try:
-        chunk_count = rag.ingest(cid, name, path)
-        excerpt = rag.extract_text(path, name).strip()
-        record["status"] = "indexed" if chunk_count > 0 else "error"
-        record["chunks"] = chunk_count
-        record["excerpt"] = excerpt[:500]
-        if chunk_count == 0:
-            record["error"] = "No extractable text found"
-    except rag.RagUnavailable as e:
-        record["status"] = "error"
-        record["error"] = str(e)
-    except Exception as e:  # noqa: BLE001
-        record["status"] = "error"
-        record["error"] = str(e)
-
-    _upsert_course(record)
-    return record
+        return await asyncio.to_thread(local_sandbox.run, language, code, stdin)
+    except local_sandbox.LocalExecError as e:
+        status = {"timeout": 504, "unsupported_language": 400}.get(e.kind, 502)
+        raise SandboxError(e.kind, e.message, status=status)
 
 
-@app.post("/api/agents/courses/upload")
-async def upload_course(
-    file: UploadFile = File(...),
-    course_id: str = Form(default=""),
-):
+async def run_in_sandbox(language: str, code: str, stdin: str = "") -> dict:
     """
-    Accept a PDF/DOCX/TXT/MD course file, persist it, then embed + store its
-    chunks in the pgvector store so the agents can retrieve from it.
+    Run code in the configured sandbox provider and return a structured result
+    with `kind` success|compile_error|runtime_error. Raises SandboxError
+    (unsupported_language | timeout | sandbox_unreachable | sandbox_error) for
+    infrastructure failures so the caller can report a precise cause.
     """
-    os.makedirs(UPLOADS_DIR, exist_ok=True)
-    cid = course_id or str(uuid.uuid4())
-    safe_name = file.filename or f"document-{cid}"
-    dest = os.path.join(UPLOADS_DIR, f"{cid}_{safe_name}")
-
-    with open(dest, "wb") as out:
-        shutil.copyfileobj(file.file, out)
-
-    file_size = os.path.getsize(dest)
-    record = _index_document(cid, safe_name, dest, file_size)
-
-    if record["status"] == "error":
-        return {"course": record, "message": f"Indexing failed: {record.get('error', 'unknown error')}"}
-    return {"course": record, "message": f"Document indexed: {record['chunks']} chunks embedded"}
+    if SANDBOX_PROVIDER == "piston":
+        return await _run_piston(language, code, stdin)
+    return await _run_local(language, code, stdin)
 
 
-@app.post("/api/agents/courses/{course_id}/reindex")
-def reindex_course(course_id: str):
-    """Re-run the embedding pipeline on an already uploaded document."""
-    record = next((c for c in _load_courses() if c.get("id") == course_id), None)
-    if not record:
-        raise HTTPException(status_code=404, detail="Course not found")
-    path = record.get("path")
-    if not path or not os.path.exists(path):
-        raise HTTPException(status_code=410, detail="Source file no longer available")
-    updated = _index_document(course_id, record["name"], path, record.get("size", os.path.getsize(path)))
-    return {"course": updated}
-
-
-class CourseSearchRequest(BaseModel):
-    query: str
-    course_ids: list[str] = []
-    k: int = 5
-
-
-@app.post("/api/agents/courses/search")
-def search_courses(req: CourseSearchRequest):
-    """Vector similarity search across indexed course chunks."""
-    if not RAG_READY:
-        raise HTTPException(status_code=503, detail="Vector store unavailable")
+@app.post("/api/execute")
+async def execute_code(req: ExecuteRequest):
+    """
+    Run student code in the sandbox and return its output — the per-language
+    'live display'. Web (HTML/CSS) is rendered client-side and not executed here.
+    Returns 200 with a `kind` of success/compile_error/runtime_error; raises a
+    JSON error with `kind` (timeout/sandbox_unreachable/…) on infra failure.
+    """
+    started = time.monotonic()
     try:
-        results = rag.search(req.query, course_ids=req.course_ids or None, k=req.k)
-    except rag.RagUnavailable as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    return {"results": results}
+        result = await run_in_sandbox(req.language, req.code, req.stdin)
+    except SandboxError as e:
+        logger.error("execute failed kind=%s lang=%s: %s", e.kind, req.language, e.message)
+        raise HTTPException(status_code=e.status, detail={"kind": e.kind, "message": e.message})
+    result["elapsed_ms"] = round((time.monotonic() - started) * 1000)
+    logger.info("execute lang=%s kind=%s exit=%s %dms",
+                result["language"], result["kind"], result["exit_code"], result["elapsed_ms"])
+    return result
 
-
-@app.delete("/api/agents/courses/{course_id}")
-def delete_course(course_id: str):
-    """Remove a course document and its vectors from the store."""
-    courses = _load_courses()
-    record = next((c for c in courses if c.get("id") == course_id), None)
-    if not record:
-        raise HTTPException(status_code=404, detail="Course not found")
-    if record.get("path") and os.path.exists(record["path"]):
-        os.remove(record["path"])
-    if RAG_READY:
-        try:
-            rag.delete(course_id)
-        except Exception as e:  # noqa: BLE001
-            print(f"[agent-gateway] failed to drop vectors for {course_id}: {e}")
-    _save_courses([c for c in courses if c.get("id") != course_id])
-    return {"deleted": course_id}
 
 
 # ─── Real-time progress endpoints ────────────────────────────────────────────
@@ -420,6 +625,8 @@ async def publish_progress(event: ProgressEvent):
     payload = {"type": event.type, "progress": event.progress,
                "at": datetime.now(timezone.utc).isoformat()}
     await manager.broadcast(payload)
+    await events.bus.emit(events.TOPIC_PROGRESS, dict(payload),
+                          key=str(event.progress.get("studentId") or ""))
     return {"delivered": len(manager.active)}
 
 

@@ -1,45 +1,35 @@
-# Kafka topic configuration for the Agentic TP Platform
+# Kafka topics for the Agentic TP Platform (documentation).
+#
+# Topics are created programmatically by the agent gateway on startup
+# (backend/agent-gateway/events.py) — this file is reference only.
+#
+# Producer: agent-gateway (aiokafka, fire-and-forget)
+# Consumer: tp-service (spring-kafka, group agentic-tp-group) → agent_events table
 topics:
-  - name: agent.explain.requests
+  - name: agent.interactions        # one event per agent call (explain/hint/quiz/evaluate)
     partitions: 3
     replication-factor: 1
     config:
-      retention.ms: 86400000
+      retention.ms: 604800000       # 7 days
 
-  - name: agent.hint.requests
+  - name: progress.updates          # student progress snapshots
     partitions: 3
     replication-factor: 1
     config:
-      retention.ms: 86400000
+      retention.ms: 604800000       # 7 days
 
-  - name: agent.evaluation.requests
+  - name: quiz.completed            # final quiz scores
     partitions: 3
     replication-factor: 1
     config:
-      retention.ms: 86400000
-
-  - name: agent.responses
-    partitions: 3
-    replication-factor: 1
-    config:
-      retention.ms: 3600000
-
-  - name: progress.updates
-    partitions: 3
-    replication-factor: 1
-    config:
-      retention.ms: 604800000
-
-  - name: quiz.completed
-    partitions: 3
-    replication-factor: 1
-    config:
-      retention.ms: 604800000
+      retention.ms: 2592000000      # 30 days
 
 consumer-groups:
   - id: agentic-tp-group
+    service: tp-service
     topics:
-      - agent.responses
+      - agent.interactions
       - progress.updates
+      - quiz.completed
 
-bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}

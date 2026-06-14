@@ -37,6 +37,31 @@ public class TP {
     @Column(columnDefinition = "TEXT")
     private String starterHTML;
 
+    /** Primary language of the TP (html, css, javascript, python…). */
+    @Builder.Default
+    private String language = "html";
+
+    /**
+     * Human-in-the-Loop lifecycle status:
+     * draft → reviewed → enhanced → published.
+     */
+    @Builder.Default
+    private String status = "published";
+
+    /**
+     * Structured, university-level sections (context, objectives, prerequisites,
+     * tools, expectedOutput, constraints, evaluationCriteria, bonus). Stored as
+     * JSON so adding sections needs no schema migration.
+     */
+    @Convert(converter = JsonConverter.MapConverter.class)
+    @Column(name = "content_json", columnDefinition = "TEXT")
+    @Builder.Default
+    private Map<String, Object> content = new java.util.HashMap<>();
+
+    /** Teacher setting: block paste/drop in the student editor. */
+    @Builder.Default
+    private Boolean antiCheat = true;
+
     /**
      * JSON array of step objects matching frontend TPStep type:
      * [{id, title, instructions, requiredTags: string[], quiz: QuizQuestion[]}]

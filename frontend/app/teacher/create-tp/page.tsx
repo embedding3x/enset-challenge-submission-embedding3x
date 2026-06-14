@@ -66,12 +66,12 @@ function StepEditor({
   };
 
   return (
-    <div className="bg-[#1e1e2e] rounded-2xl border border-[#313244] p-6">
+    <div className="bg-[#1e2235] rounded-2xl border border-[#2a2f4c] p-6">
       <div className="flex items-center justify-between mb-5">
-        <h3 className="font-semibold text-[#cba6f7]">Step {index + 1}</h3>
+        <h3 className="font-semibold text-[#c084fc]">Step {index + 1}</h3>
         <button
           onClick={onRemove}
-          className="text-xs text-[#f38ba8] hover:text-white transition-colors"
+          className="text-xs text-[#f87171] hover:text-white transition-colors"
         >
           Remove
         </button>
@@ -80,20 +80,20 @@ function StepEditor({
       <div className="space-y-4">
         {/* Title */}
         <div>
-          <label className="text-sm text-[#a6adc8] block mb-1">
+          <label className="text-sm text-[#b6bdd9] block mb-1">
             Step Title
           </label>
           <input
             value={step.title}
             onChange={(e) => onChange({ ...step, title: e.target.value })}
-            className="w-full bg-[#313244] rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:ring-1 focus:ring-[#cba6f7] border border-[#45475a] placeholder:text-[#6c7086]"
+            className="w-full bg-[#2a2f4c] rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:ring-1 focus:ring-[#c084fc] border border-[#4a5170] placeholder:text-[#8b92b2]"
             placeholder="e.g. Add a Heading"
           />
         </div>
 
         {/* Instructions */}
         <div>
-          <label className="text-sm text-[#a6adc8] block mb-1">
+          <label className="text-sm text-[#b6bdd9] block mb-1">
             Instructions
           </label>
           <textarea
@@ -102,14 +102,14 @@ function StepEditor({
               onChange({ ...step, instructions: e.target.value })
             }
             rows={3}
-            className="w-full bg-[#313244] rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:ring-1 focus:ring-[#cba6f7] border border-[#45475a] resize-none placeholder:text-[#6c7086]"
+            className="w-full bg-[#2a2f4c] rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:ring-1 focus:ring-[#c084fc] border border-[#4a5170] resize-none placeholder:text-[#8b92b2]"
             placeholder="Describe what the student needs to do..."
           />
         </div>
 
         {/* Required tags */}
         <div>
-          <label className="text-sm text-[#a6adc8] block mb-1">
+          <label className="text-sm text-[#b6bdd9] block mb-1">
             Required HTML Tags (for validation)
           </label>
           <div className="flex gap-2">
@@ -117,12 +117,12 @@ function StepEditor({
               value={tagInput}
               onChange={(e) => setTagInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addTag()}
-              className="flex-1 bg-[#313244] rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:ring-1 focus:ring-[#cba6f7] border border-[#45475a] placeholder:text-[#6c7086]"
+              className="flex-1 bg-[#2a2f4c] rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:ring-1 focus:ring-[#c084fc] border border-[#4a5170] placeholder:text-[#8b92b2]"
               placeholder="e.g. h1, p, button"
             />
             <button
               onClick={addTag}
-              className="px-4 py-2 rounded-xl bg-[#45475a] text-white text-sm hover:bg-[#585b70] transition-colors"
+              className="px-4 py-2 rounded-xl bg-[#4a5170] text-white text-sm hover:bg-[#585b70] transition-colors"
             >
               Add
             </button>
@@ -131,12 +131,12 @@ function StepEditor({
             {step.requiredTags.map((tag) => (
               <span
                 key={tag}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#313244] text-[#cba6f7] text-xs font-mono border border-[#45475a]"
+                className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#2a2f4c] text-[#c084fc] text-xs font-mono border border-[#4a5170]"
               >
                 &lt;{tag}&gt;
                 <button
                   onClick={() => removeTag(tag)}
-                  className="text-[#f38ba8] hover:text-white"
+                  className="text-[#f87171] hover:text-white"
                 >
                   ×
                 </button>
@@ -147,7 +147,7 @@ function StepEditor({
 
         {/* Quiz questions */}
         <div>
-          <label className="text-sm text-[#a6adc8] block mb-2">
+          <label className="text-sm text-[#b6bdd9] block mb-2">
             Quiz Questions
           </label>
           <div className="space-y-3">
@@ -168,7 +168,7 @@ function StepEditor({
             onClick={() =>
               onChange({ ...step, quiz: [...step.quiz, emptyQuestion()] })
             }
-            className="mt-3 text-xs text-[#89b4fa] hover:text-white transition-colors"
+            className="mt-3 text-xs text-[#60a5fa] hover:text-white transition-colors"
           >
             + Add question
           </button>
@@ -190,12 +190,12 @@ function QuestionEditor({
   onRemove: () => void;
 }) {
   return (
-    <div className="bg-[#181825] rounded-xl border border-[#313244] p-4">
+    <div className="bg-[#181b2b] rounded-xl border border-[#2a2f4c] p-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-[#6c7086]">Question {index + 1}</span>
+        <span className="text-xs text-[#8b92b2]">Question {index + 1}</span>
         <button
           onClick={onRemove}
-          className="text-xs text-[#f38ba8] hover:text-white"
+          className="text-xs text-[#f87171] hover:text-white"
         >
           Remove
         </button>
@@ -203,7 +203,7 @@ function QuestionEditor({
       <input
         value={question.question}
         onChange={(e) => onChange({ ...question, question: e.target.value })}
-        className="w-full bg-[#1e1e2e] rounded-lg px-3 py-2 text-white text-sm outline-none focus:ring-1 focus:ring-[#cba6f7] border border-[#313244] placeholder:text-[#45475a] mb-3"
+        className="w-full bg-[#1e2235] rounded-lg px-3 py-2 text-white text-sm outline-none focus:ring-1 focus:ring-[#c084fc] border border-[#2a2f4c] placeholder:text-[#4a5170] mb-3"
         placeholder="Question text..."
       />
       <div className="grid grid-cols-2 gap-2 mb-3">
@@ -213,8 +213,8 @@ function QuestionEditor({
               onClick={() => onChange({ ...question, correctId: opt.id })}
               className={`w-5 h-5 rounded-full border shrink-0 transition-colors ${
                 question.correctId === opt.id
-                  ? "border-[#a6e3a1] bg-[#a6e3a1]"
-                  : "border-[#45475a]"
+                  ? "border-[#34d399] bg-[#34d399]"
+                  : "border-[#4a5170]"
               }`}
             />
             <input
@@ -225,7 +225,7 @@ function QuestionEditor({
                 );
                 onChange({ ...question, options });
               }}
-              className="flex-1 bg-[#1e1e2e] rounded-lg px-2 py-1.5 text-white text-xs outline-none focus:ring-1 focus:ring-[#cba6f7] border border-[#313244] placeholder:text-[#45475a]"
+              className="flex-1 bg-[#1e2235] rounded-lg px-2 py-1.5 text-white text-xs outline-none focus:ring-1 focus:ring-[#c084fc] border border-[#2a2f4c] placeholder:text-[#4a5170]"
               placeholder={`Option ${opt.id.toUpperCase()}`}
             />
           </div>
@@ -236,7 +236,7 @@ function QuestionEditor({
         onChange={(e) =>
           onChange({ ...question, explanation: e.target.value })
         }
-        className="w-full bg-[#1e1e2e] rounded-lg px-3 py-2 text-[#a6adc8] text-xs outline-none focus:ring-1 focus:ring-[#cba6f7] border border-[#313244] placeholder:text-[#45475a]"
+        className="w-full bg-[#1e2235] rounded-lg px-3 py-2 text-[#b6bdd9] text-xs outline-none focus:ring-1 focus:ring-[#c084fc] border border-[#2a2f4c] placeholder:text-[#4a5170]"
         placeholder="Explanation shown after quiz submit..."
       />
     </div>
@@ -292,20 +292,20 @@ export default function CreateTPPage() {
   if (!isTeacher) return null;
 
   return (
-    <div className="min-h-screen bg-[#1a1a2e]">
+    <div className="min-h-screen bg-[#141724]">
       {/* Nav */}
-      <nav className="bg-[#181825] border-b border-[#313244] px-6 py-4 flex items-center justify-between sticky top-0 z-10">
+      <nav className="bg-[#181b2b] border-b border-[#2a2f4c] px-6 py-4 flex items-center justify-between sticky top-0 z-10">
         <div className="flex items-center gap-3">
-          <Link href="/teacher/dashboard" className="text-[#6c7086] hover:text-white transition-colors text-sm">
+          <Link href="/teacher/dashboard" className="text-[#8b92b2] hover:text-white transition-colors text-sm">
             ← Dashboard
           </Link>
-          <span className="text-[#313244]">/</span>
+          <span className="text-[#2a2f4c]">/</span>
           <span className="text-white text-sm font-medium">Create TP</span>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={() => setPreview(!preview)}
-            className="px-3 py-1.5 rounded-lg bg-[#313244] text-[#a6adc8] text-sm hover:bg-[#45475a] transition-colors"
+            className="px-3 py-1.5 rounded-lg bg-[#2a2f4c] text-[#b6bdd9] text-sm hover:bg-[#4a5170] transition-colors"
           >
             {preview ? "✏️ Edit" : "👁 Preview"}
           </button>
@@ -313,8 +313,8 @@ export default function CreateTPPage() {
             onClick={handleSave}
             className={`px-4 py-1.5 rounded-lg font-semibold text-sm transition-all ${
               saved
-                ? "bg-[#a6e3a1] text-[#1a1a2e]"
-                : "bg-gradient-to-r from-[#cba6f7] to-[#89b4fa] text-[#1a1a2e] hover:opacity-90"
+                ? "bg-[#34d399] text-[#141724]"
+                : "bg-gradient-to-r from-[#c084fc] to-[#60a5fa] text-[#141724] hover:opacity-90"
             }`}
           >
             {saved ? "✅ Saved!" : "Save TP"}
@@ -325,36 +325,36 @@ export default function CreateTPPage() {
       <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-white">Create a new TP</h1>
-          <p className="text-[#6c7086] mt-1">
+          <p className="text-[#8b92b2] mt-1">
             Define the instructions, starter code, steps, and quiz questions.
           </p>
         </div>
 
         {/* Meta */}
-        <div className="bg-[#181825] rounded-2xl border border-[#313244] p-6 space-y-4">
+        <div className="bg-[#181b2b] rounded-2xl border border-[#2a2f4c] p-6 space-y-4">
           <h2 className="font-semibold text-white">📋 TP Details</h2>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full bg-[#1e1e2e] rounded-xl px-4 py-3 text-white text-lg font-semibold outline-none focus:ring-1 focus:ring-[#cba6f7] border border-[#313244] placeholder:text-[#45475a]"
+            className="w-full bg-[#1e2235] rounded-xl px-4 py-3 text-white text-lg font-semibold outline-none focus:ring-1 focus:ring-[#c084fc] border border-[#2a2f4c] placeholder:text-[#4a5170]"
             placeholder="TP Title"
           />
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
-            className="w-full bg-[#1e1e2e] rounded-xl px-4 py-2.5 text-[#a6adc8] text-sm outline-none focus:ring-1 focus:ring-[#cba6f7] border border-[#313244] resize-none placeholder:text-[#45475a]"
+            className="w-full bg-[#1e2235] rounded-xl px-4 py-2.5 text-[#b6bdd9] text-sm outline-none focus:ring-1 focus:ring-[#c084fc] border border-[#2a2f4c] resize-none placeholder:text-[#4a5170]"
             placeholder="Short description for students..."
           />
           <div>
-            <label className="text-xs text-[#6c7086] block mb-1">
+            <label className="text-xs text-[#8b92b2] block mb-1">
               Field / Module
             </label>
             <input
               value={field}
               onChange={(e) => setField(e.target.value)}
               list="tp-field-options"
-              className="w-full bg-[#1e1e2e] rounded-xl px-3 py-2 text-white text-sm outline-none border border-[#313244] focus:ring-1 focus:ring-[#cba6f7] placeholder:text-[#45475a]"
+              className="w-full bg-[#1e2235] rounded-xl px-3 py-2 text-white text-sm outline-none border border-[#2a2f4c] focus:ring-1 focus:ring-[#c084fc] placeholder:text-[#4a5170]"
               placeholder="e.g. Développement Web"
             />
             <datalist id="tp-field-options">
@@ -366,13 +366,13 @@ export default function CreateTPPage() {
           </div>
           <div className="flex gap-4">
             <div className="flex-1">
-              <label className="text-xs text-[#6c7086] block mb-1">
+              <label className="text-xs text-[#8b92b2] block mb-1">
                 Difficulty
               </label>
               <select
                 value={difficulty}
                 onChange={(e) => setDifficulty(e.target.value as TP["difficulty"])}
-                className="w-full bg-[#1e1e2e] rounded-xl px-3 py-2 text-white text-sm outline-none border border-[#313244] focus:ring-1 focus:ring-[#cba6f7]"
+                className="w-full bg-[#1e2235] rounded-xl px-3 py-2 text-white text-sm outline-none border border-[#2a2f4c] focus:ring-1 focus:ring-[#c084fc]"
               >
                 <option value="beginner">Beginner</option>
                 <option value="intermediate">Intermediate</option>
@@ -380,33 +380,33 @@ export default function CreateTPPage() {
               </select>
             </div>
             <div className="flex-1">
-              <label className="text-xs text-[#6c7086] block mb-1">
+              <label className="text-xs text-[#8b92b2] block mb-1">
                 Estimated time (min)
               </label>
               <input
                 type="number"
                 value={estimatedMinutes}
                 onChange={(e) => setEstimatedMinutes(Number(e.target.value))}
-                className="w-full bg-[#1e1e2e] rounded-xl px-3 py-2 text-white text-sm outline-none border border-[#313244] focus:ring-1 focus:ring-[#cba6f7]"
+                className="w-full bg-[#1e2235] rounded-xl px-3 py-2 text-white text-sm outline-none border border-[#2a2f4c] focus:ring-1 focus:ring-[#c084fc]"
               />
             </div>
           </div>
         </div>
 
         {/* Starter HTML */}
-        <div className="bg-[#181825] rounded-2xl border border-[#313244] p-6">
+        <div className="bg-[#181b2b] rounded-2xl border border-[#2a2f4c] p-6">
           <h2 className="font-semibold text-white mb-3">
             🗂 Starter HTML
           </h2>
-          <p className="text-xs text-[#6c7086] mb-3">
+          <p className="text-xs text-[#8b92b2] mb-3">
             This is the initial code students will see when opening the TP.
           </p>
-          <div className="bg-[#1e1e2e] rounded-xl border border-[#313244] overflow-hidden">
-            <div className="px-4 py-2 bg-[#313244] flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-[#f38ba8]" />
-              <span className="w-3 h-3 rounded-full bg-[#f9e2af]" />
-              <span className="w-3 h-3 rounded-full bg-[#a6e3a1]" />
-              <span className="text-xs text-[#6c7086] ml-2 font-mono">
+          <div className="bg-[#1e2235] rounded-xl border border-[#2a2f4c] overflow-hidden">
+            <div className="px-4 py-2 bg-[#2a2f4c] flex items-center gap-2">
+              <span className="w-3 h-3 rounded-full bg-[#f87171]" />
+              <span className="w-3 h-3 rounded-full bg-[#fbbf24]" />
+              <span className="w-3 h-3 rounded-full bg-[#34d399]" />
+              <span className="text-xs text-[#8b92b2] ml-2 font-mono">
                 index.html
               </span>
             </div>
@@ -414,16 +414,16 @@ export default function CreateTPPage() {
               value={starterHTML}
               onChange={(e) => setStarterHTML(e.target.value)}
               rows={12}
-              className="w-full bg-transparent px-4 py-3 text-[#cdd6f4] font-mono text-sm outline-none resize-none"
+              className="w-full bg-transparent px-4 py-3 text-[#e2e8f0] font-mono text-sm outline-none resize-none"
               spellCheck={false}
             />
           </div>
           {preview && (
             <div className="mt-4">
-              <p className="text-xs text-[#6c7086] mb-2">Preview:</p>
+              <p className="text-xs text-[#8b92b2] mb-2">Preview:</p>
               <iframe
                 srcDoc={starterHTML}
-                className="w-full h-48 bg-white rounded-xl border border-[#313244]"
+                className="w-full h-48 bg-white rounded-xl border border-[#2a2f4c]"
                 sandbox="allow-scripts"
                 title="HTML Preview"
               />
@@ -437,7 +437,7 @@ export default function CreateTPPage() {
             <h2 className="font-semibold text-white">🪜 Steps</h2>
             <button
               onClick={() => setSteps([...steps, emptyStep()])}
-              className="text-sm text-[#89b4fa] hover:text-white transition-colors"
+              className="text-sm text-[#60a5fa] hover:text-white transition-colors"
             >
               + Add step
             </button>
@@ -455,7 +455,7 @@ export default function CreateTPPage() {
 
         <button
           onClick={handleSave}
-          className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#cba6f7] to-[#89b4fa] text-[#1a1a2e] font-bold text-lg hover:opacity-90 transition-opacity"
+          className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#c084fc] to-[#60a5fa] text-[#141724] font-bold text-lg hover:opacity-90 transition-opacity"
         >
           {saved ? "✅ Saved!" : "Save TP"}
         </button>

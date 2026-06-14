@@ -20,6 +20,7 @@ networks:
 volumes:
   postgres-data:
   kafka-data:
+  piston-packages:
 
 # All services that need the root .env at BUILD or RUN time inherit from here.
 x-env-defaults: &env-defaults
@@ -69,33 +70,36 @@ services:
       ADMINER_DEFAULT_SERVER: postgres
       ADMINER_DESIGN: rmsoft_blue
 
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.6.1
-    container_name: agentic-zookeeper
-    networks: [agentic-net]
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-
+  # Single-node Kafka in KRaft mode (no Zookeeper needed)
   kafka:
     image: confluentinc/cp-kafka:7.6.1
     container_name: agentic-kafka
-    depends_on: [zookeeper]
     networks: [agentic-net]
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:29092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
     ports:
       - "9092:9092"
       - "29092:29092"
     volumes:
       - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
 
   # ─── Spring Cloud: Service Discovery ────────────────────────────────────────
 
@@ -160,6 +164,8 @@ services:
         condition: service_healthy
       discovery-server:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     networks: [agentic-net]
     ports:
       - "8082:8082"
@@ -170,6 +176,7 @@ services:
       TP_DB_PASSWORD: ${TP_DB_PASSWORD:-postgres}
       JWT_SECRET: ${JWT_SECRET:-fallback-secret-change-in-production-minimum-32-chars}
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
   # ─── Spring Cloud: API Gateway ───────────────────────────────────────────────
 
@@ -280,6 +287,91 @@ services:
       retries: 3
       start_period: 15s
 
+  # ─── Creator Agent (TP generation — qwen2.5-coder) ──────────────────────────
+
+  creator-agent:
+    build:
+      context: ../../agents/creator-agent
+      dockerfile: Dockerfile
+    container_name: creator-agent
+    <<: [*env-defaults, *ollama-host]
+    networks: [agentic-net]
+    ports:
+      - "8007:8007"
+    environment:
+      CREATOR_AGENT_PORT: 8007
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      CREATOR_AGENT_MODEL: ${CREATOR_AGENT_MODEL:-qwen2.5-coder:latest}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from urllib.request import urlopen; urlopen('http://localhost:8007/health')\" || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ─── RAG Service (vector store + course documents) ──────────────────────────
+
+  rag-service:
+    build:
+      context: ../../backend/rag-service
+      dockerfile: Dockerfile
+    container_name: rag-service
+    <<: [*env-defaults, *ollama-host]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [agentic-net]
+    ports:
+      - "8005:8005"
+    environment:
+      RAG_SERVICE_PORT: 8005
+      RAG_DATABASE_URL: postgresql://${AUTH_DB_USERNAME:-postgres}:${AUTH_DB_PASSWORD:-postgres}@postgres:5432/rag_db
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      RAG_EMBED_MODEL: ${RAG_EMBED_MODEL:-nomic-embed-text}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from urllib.request import urlopen; urlopen('http://localhost:8005/health')\" || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ─── Code execution sandbox (self-hosted Piston) ───────────────────────────
+  # Isolated multi-language execution. After first boot, install the runtimes you
+  # need, e.g.:  docker exec piston cli ppman install python java dart go rust ...
+  # (See https://github.com/engineer-man/piston). The gateway points here via
+  # SANDBOX_PROVIDER=piston below.
+  piston:
+    image: ghcr.io/engineer-man/piston:latest
+    container_name: piston
+    privileged: true
+    restart: unless-stopped
+    networks: [agentic-net]
+    ports:
+      - "2000:2000"
+    volumes:
+      - piston-packages:/piston/packages
+
+  # ─── Validation Service (multi-language student-code checks) ────────────────
+
+  validation-service:
+    build:
+      context: ../../backend/validation-service
+      dockerfile: Dockerfile
+    container_name: validation-service
+    networks: [agentic-net]
+    ports:
+      - "8006:8006"
+    environment:
+      VALIDATION_SERVICE_PORT: 8006
+      # Execution-based validation runs test cases through the gateway's sandbox.
+      AGENT_GATEWAY_URL: http://agent-gateway:8000
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from urllib.request import urlopen; urlopen('http://localhost:8006/health')\" || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
   # ─── Agent Gateway ────────────────────────────────────────────────────────────
 
   agent-gateway:
@@ -289,7 +381,9 @@ services:
     container_name: agent-gateway
     <<: [*env-defaults, *ollama-host]
     depends_on:
-      postgres:
+      kafka:
+        condition: service_healthy
+      rag-service:
         condition: service_healthy
       explanation-agent:
         condition: service_healthy
@@ -299,6 +393,10 @@ services:
         condition: service_healthy
       orchestrator:
         condition: service_healthy
+      creator-agent:
+        condition: service_healthy
+      piston:
+        condition: service_started
     networks: [agentic-net]
     ports:
       - "8000:8000"
@@ -307,10 +405,15 @@ services:
       EXPLANATION_AGENT_URL: http://explanation-agent:8001
       HINT_AGENT_URL: http://hint-agent:8002
       EVALUATION_AGENT_URL: http://evaluation-agent:8003
-      ORCHESTRATOR_PORT: 8004
-      RAG_DATABASE_URL: postgresql://${AUTH_DB_USERNAME:-postgres}:${AUTH_DB_PASSWORD:-postgres}@postgres:5432/rag_db
+      ORCHESTRATOR_URL: http://orchestrator:8004
+      CREATOR_AGENT_URL: http://creator-agent:8007
+      RAG_SERVICE_URL: http://rag-service:8005
+      VALIDATION_SERVICE_URL: http://validation-service:8006
       OLLAMA_BASE_URL: http://host.docker.internal:11434
-      RAG_EMBED_MODEL: ${RAG_EMBED_MODEL:-nomic-embed-text}
+      # In Docker the gateway has no host toolchains, so use the isolated Piston.
+      SANDBOX_PROVIDER: piston
+      PISTON_URL: http://piston:2000/api/v2
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     healthcheck:
       test: ["CMD-SHELL", "python -c \"from urllib.request import urlopen; urlopen('http://localhost:8000/health')\" || exit 1"]
       interval: 20s
@@ -334,3 +437,5 @@ services:
     environment:
       NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
       NEXT_PUBLIC_AGENT_GATEWAY_URL: http://localhost:8000
+      NEXT_PUBLIC_RAG_SERVICE_URL: http://localhost:8005
+      NEXT_PUBLIC_VALIDATION_SERVICE_URL: http://localhost:8006

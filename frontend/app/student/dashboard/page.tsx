@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
-import { useRouter } from "next/navigation";
 import { tpService } from "@/services/tpService";
 import { TP, Assignment, TPProgress } from "@/types";
+import { MessageSquare, Bell, FileBarChart } from "lucide-react";
+import SkillRadar, { RadarAxis } from "@/components/student/SkillRadar";
+import AppNavbar from "@/components/layout/AppNavbar";
 
 interface TPCard {
   tp: TP;
@@ -13,18 +15,41 @@ interface TPCard {
   progress: TPProgress | null;
 }
 
+const ago = (iso?: string) => {
+  if (!iso) return null;
+  const sec = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (sec < 60) return "moments ago";
+  if (sec < 3600) return `${Math.floor(sec / 60)} minutes ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)} hours ago`;
+  return `${Math.floor(sec / 86400)} days ago`;
+};
+
+const STATUS_BADGE: Record<string, { label: string; className: string }> = {
+  in_progress: {
+    label: "In Progress",
+    className: "bg-amber-600/20 text-amber-400 border-amber-700",
+  },
+  not_started: {
+    label: "Not Started",
+    className: "bg-gray-500/20 text-gray-400 border-gray-600",
+  },
+  completed: {
+    label: "Completed",
+    className: "bg-emerald-500/20 text-emerald-400 border-emerald-700",
+  },
+};
+
 export default function StudentDashboardPage() {
-  const { user, logout, isStudent } = useAuth();
-  const router = useRouter();
+  const { user } = useAuth();
   const [cards, setCards] = useState<TPCard[]>([]);
 
   useEffect(() => {
-    if (!isStudent) { router.push("/login"); return; }
+    if (!user) return; // RequireRole in the segment layout guarantees this resolves
     let cancelled = false;
 
     (async () => {
       const [assignments, allTPs] = await Promise.all([
-        tpService.getAssignmentsForStudent(user!.id),
+        tpService.getAssignmentsForStudent(user.id),
         tpService.getAllTPs(),
       ]);
 
@@ -33,7 +58,7 @@ export default function StudentDashboardPage() {
           assignments.map(async (a) => {
             const tp = allTPs.find((t) => t.id === a.tpId);
             if (!tp) return null;
-            const progress = await tpService.getProgress(user!.id, tp.id);
+            const progress = await tpService.getProgress(user.id, tp.id);
             return { tp, assignment: a, progress } as TPCard;
           })
         )
@@ -43,159 +68,233 @@ export default function StudentDashboardPage() {
     })();
 
     return () => { cancelled = true; };
-  }, [isStudent, user, router]);
+  }, [user]);
 
-  const getStatusLabel = (p: TPProgress | null) => {
-    if (!p || p.status === "not_started")
-      return { text: "Not started", color: "text-[#45475a]", bg: "bg-[#45475a]/10" };
-    if (p.status === "in_progress")
-      return { text: "In progress", color: "text-[#f9e2af]", bg: "bg-[#f9e2af]/10" };
-    return { text: "Completed", color: "text-[#a6e3a1]", bg: "bg-[#a6e3a1]/10" };
-  };
+  const statusOf = (p: TPProgress | null) =>
+    !p || p.status === "not_started" ? "not_started" : p.status;
 
   const getProgressPct = (p: TPProgress | null, tp: TP) => {
     if (!p) return 0;
-    return Math.round((p.currentStepIndex / tp.steps.length) * 100);
+    return Math.round((Math.min(p.currentStepIndex, tp.steps.length) / tp.steps.length) * 100);
   };
 
-  const stats = {
-    total: cards.length,
-    done: cards.filter((c) => c.progress?.status === "completed").length,
-    inProgress: cards.filter((c) => c.progress?.status === "in_progress").length,
-  };
+  // Most recently active in-progress TP, else first not-started one.
+  const continueCard = useMemo(() => {
+    const inProgress = cards
+      .filter((c) => statusOf(c.progress) === "in_progress")
+      .sort((a, b) =>
+        (b.progress?.lastActiveAt ?? "").localeCompare(a.progress?.lastActiveAt ?? "")
+      );
+    return inProgress[0] ?? cards.find((c) => statusOf(c.progress) === "not_started") ?? null;
+  }, [cards]);
+
+  // Skill radar: completion ratio per field (up to 6 axes).
+  const radarAxes: RadarAxis[] = useMemo(() => {
+    const byField = new Map<string, { done: number; total: number }>();
+    cards.forEach(({ tp, progress }) => {
+      const field = tp.field || "Général";
+      const entry = byField.get(field) ?? { done: 0, total: 0 };
+      entry.total += tp.steps.length;
+      entry.done += progress
+        ? Math.min(progress.currentStepIndex, tp.steps.length)
+        : 0;
+      byField.set(field, entry);
+    });
+    const axes = Array.from(byField.entries())
+      .slice(0, 6)
+      .map(([label, { done, total }]) => ({
+        label,
+        value: total ? done / total : 0,
+      }));
+    // Pad with reference axes so the radar always reads as a shape.
+    const fillers = ["HTML", "CSS", "JavaScript", "Forms", "Layout", "Logic"];
+    let i = 0;
+    while (axes.length < 5 && i < fillers.length) {
+      if (!axes.some((a) => a.label === fillers[i])) {
+        axes.push({ label: fillers[i], value: 0.15 + (i % 3) * 0.1 });
+      }
+      i++;
+    }
+    return axes;
+  }, [cards]);
+
+  // Notifications derived from live progress data.
+  const notifications = useMemo(() => {
+    const items: { from: string; text: string; icon: "chat" | "bell" | "report" }[] = [];
+    cards.forEach(({ tp, assignment, progress }) => {
+      const status = statusOf(progress);
+      if (status === "in_progress") {
+        items.push({
+          from: "AI Assistant",
+          text: `New hint available for "${tp.title}"`,
+          icon: "chat",
+        });
+      }
+      if (assignment.dueDate && status !== "completed") {
+        items.push({
+          from: "Teacher",
+          text: `"${tp.title}" is due ${new Date(assignment.dueDate).toLocaleDateString()}`,
+          icon: "bell",
+        });
+      }
+      if (status === "completed" && progress?.quizScore != null) {
+        items.push({
+          from: "System",
+          text: `"${tp.title}" was graded: ${progress.quizScore}%`,
+          icon: "report",
+        });
+      }
+    });
+    return items.slice(0, 6);
+  }, [cards]);
+
+  const notifIcon = (icon: string) =>
+    icon === "chat" ? (
+      <MessageSquare size={18} className="text-primary" />
+    ) : icon === "bell" ? (
+      <Bell size={18} className="text-primary" />
+    ) : (
+      <FileBarChart size={18} className="text-textmuted" />
+    );
 
   return (
-    <div className="min-h-screen bg-[#1a1a2e]">
-      {/* Nav */}
-      <nav className="bg-[#181825] border-b border-[#313244] px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">🎓</span>
-          <span className="text-lg font-bold text-white">Agentic TP</span>
-          <span className="text-xs text-[#89b4fa] bg-[#89b4fa]/10 px-2 py-0.5 rounded-full">
-            Student
-          </span>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-[#a6adc8]">{user?.name}</span>
-          <button
-            onClick={logout}
-            className="text-sm text-[#6c7086] hover:text-white transition-colors"
-          >
-            Sign out
-          </button>
-        </div>
-      </nav>
+    <div className="min-h-screen bg-appbg flex flex-col">
+      <AppNavbar />
 
-      <div className="max-w-5xl mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-white">
-            Hi {user?.name?.split(" ")[0]}! 👋
-          </h1>
-          <p className="text-[#6c7086] mt-1">Here are your assigned TPs.</p>
-        </div>
+      <main className="flex-grow max-w-7xl mx-auto w-full px-6 py-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left column: hero + assignments */}
+        <div className="lg:col-span-2 flex flex-col gap-8">
+          {/* Continue Working hero */}
+          <section className="rounded-2xl p-8 bg-gradient-hero relative overflow-hidden shadow-2xl">
+            <h1 className="font-serif text-3xl text-white mb-6 font-semibold tracking-wide drop-shadow-md">
+              {continueCard ? "Continue Working" : `Welcome, ${user?.name?.split(" ")[0] ?? ""}`}
+            </h1>
 
-        {/* Stats strip */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
-          {[
-            { label: "Total TPs", value: stats.total, color: "text-[#cba6f7]" },
-            { label: "In Progress", value: stats.inProgress, color: "text-[#f9e2af]" },
-            { label: "Completed", value: stats.done, color: "text-[#a6e3a1]" },
-          ].map((s) => (
-            <div
-              key={s.label}
-              className="bg-[#181825] rounded-2xl border border-[#313244] px-5 py-4"
-            >
-              <p className={`text-3xl font-bold ${s.color}`}>{s.value}</p>
-              <p className="text-sm text-[#6c7086] mt-1">{s.label}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* TP Cards */}
-        {cards.length === 0 ? (
-          <div className="bg-[#181825] rounded-2xl border border-dashed border-[#313244] p-16 text-center">
-            <p className="text-4xl mb-4">📭</p>
-            <p className="text-[#6c7086] text-lg">No TPs assigned yet.</p>
-            <p className="text-[#45475a] text-sm mt-1">
-              Check back with your teacher.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {cards.map(({ tp, assignment, progress }) => {
-              const status = getStatusLabel(progress);
-              const pct = getProgressPct(progress, tp);
-
-              return (
-                <Link
-                  key={`${tp.id}-${assignment.id}`}
-                  href={`/student/tp/${tp.id}?assignmentId=${assignment.id}`}
-                  className="group block"
-                >
-                  <div className="bg-[#181825] rounded-2xl border border-[#313244] p-5 hover:border-[#89b4fa] transition-all h-full flex flex-col">
-                    {/* Top */}
-                    <div className="flex items-start justify-between mb-3">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full font-mono ${
-                          tp.difficulty === "beginner"
-                            ? "text-[#a6e3a1] bg-[#a6e3a1]/10"
-                            : tp.difficulty === "intermediate"
-                            ? "text-[#f9e2af] bg-[#f9e2af]/10"
-                            : "text-[#f38ba8] bg-[#f38ba8]/10"
-                        }`}
-                      >
-                        {tp.difficulty}
-                      </span>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full ${status.bg} ${status.color}`}
-                      >
-                        {status.text}
-                      </span>
+            {continueCard ? (
+              <div className="glass-panel rounded-xl p-6 relative z-10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
+                <div className="flex-grow w-full">
+                  <h2 className="text-xl font-serif font-semibold text-white mb-1">
+                    {continueCard.tp.title}
+                  </h2>
+                  <p className="text-sm text-blue-100/70 mb-6 font-medium">
+                    {ago(continueCard.progress?.lastActiveAt)
+                      ? `Last active: ${ago(continueCard.progress?.lastActiveAt)}`
+                      : "Not started yet — jump in!"}
+                  </p>
+                  <div className="w-full relative">
+                    <div className="w-full bg-white/20 rounded-full overflow-hidden h-1.5">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${getProgressPct(continueCard.progress, continueCard.tp)}%`,
+                          background: "linear-gradient(90deg, #3b82f6, #93c5fd)",
+                        }}
+                      />
                     </div>
-
-                    <h3 className="text-base font-semibold text-white mb-2 group-hover:text-[#89b4fa] transition-colors">
-                      {tp.title}
-                    </h3>
-                    <p className="text-sm text-[#6c7086] mb-4 flex-1 line-clamp-2">
-                      {tp.description}
-                    </p>
-
-                    {/* Progress bar */}
-                    <div className="space-y-1.5">
-                      <div className="flex justify-between text-xs text-[#6c7086]">
-                        <span>
-                          {progress ? `Step ${progress.currentStepIndex + 1}` : "Step 1"}{" "}
-                          / {tp.steps.length}
-                        </span>
-                        <span>{pct}%</span>
-                      </div>
-                      <div className="h-1.5 bg-[#313244] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-[#cba6f7] to-[#89b4fa] rounded-full transition-all"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Meta */}
-                    <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#1e1e2e]">
-                      <span className="text-xs text-[#45475a]">
-                        ⏱ ~{tp.estimatedMinutes}min
-                      </span>
-                      {assignment.dueDate && (
-                        <span className="text-xs text-[#f9e2af]">
-                          Due {new Date(assignment.dueDate).toLocaleDateString()}
-                        </span>
+                    <p className="text-xs text-blue-100/70 mt-2 font-medium">
+                      {Math.min(
+                        continueCard.progress?.currentStepIndex ?? 0,
+                        continueCard.tp.steps.length
                       )}
+                      /{continueCard.tp.steps.length} Steps Completed (
+                      {getProgressPct(continueCard.progress, continueCard.tp)}%)
+                    </p>
+                  </div>
+                </div>
+                <Link
+                  href={`/student/tp/${continueCard.tp.id}?assignmentId=${continueCard.assignment.id}`}
+                  className="shrink-0 bg-white text-appbg font-semibold py-2.5 px-6 rounded-lg glow-button hover:scale-105 transition-transform duration-200"
+                >
+                  {statusOf(continueCard.progress) === "in_progress" ? "Resume Lab" : "Start Lab"}
+                </Link>
+              </div>
+            ) : (
+              <div className="glass-panel rounded-xl p-6 relative z-10 text-center">
+                <p className="text-white/90">No TPs assigned yet — check back with your teacher.</p>
+              </div>
+            )}
+          </section>
+
+          {/* My Assignments */}
+          <section className="flex flex-col gap-4">
+            <h2 className="text-lg font-medium text-white mb-1">My Assignments</h2>
+            <div className="flex flex-col gap-3">
+              {cards.length === 0 && (
+                <div className="bg-panelbg border border-dashed border-panelborder rounded-xl p-12 text-center text-textmuted">
+                  Nothing here yet.
+                </div>
+              )}
+              {cards.map(({ tp, assignment, progress }) => {
+                const badge = STATUS_BADGE[statusOf(progress)];
+                return (
+                  <Link
+                    key={`${tp.id}-${assignment.id}`}
+                    href={`/student/tp/${tp.id}?assignmentId=${assignment.id}`}
+                    className="bg-panelbg border border-panelborder/50 rounded-xl p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:border-primary/50 transition-colors cursor-pointer"
+                  >
+                    <div>
+                      <h3 className="text-white font-medium mb-1">{tp.title}</h3>
+                      <p className="text-sm text-textmuted">
+                        {tp.steps.length} steps · {tp.difficulty} · ~{tp.estimatedMinutes}m
+                        {assignment.dueDate &&
+                          ` · Due: ${new Date(assignment.dueDate).toLocaleDateString()}`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-6 w-full sm:w-auto justify-between sm:justify-end">
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-medium border ${badge.className}`}
+                      >
+                        {badge.label}
+                      </span>
+                      <span className="text-sm text-textmuted font-light w-20 text-right">
+                        {progress?.quizScore != null
+                          ? `Score: ${progress.quizScore}%`
+                          : `${getProgressPct(progress, tp)}%`}
+                      </span>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+
+        {/* Right column: radar + notifications */}
+        <div className="lg:col-span-1 flex flex-col gap-8">
+          <section className="bg-paneldark border border-panelborder rounded-2xl p-6 relative">
+            <h2 className="text-lg font-medium text-white mb-6">Skill Radar</h2>
+            <SkillRadar axes={radarAxes} />
+          </section>
+
+          <section className="flex flex-col gap-4 flex-grow">
+            <h2 className="text-lg font-medium text-white mb-1">Notifications</h2>
+            <div className="bg-paneldark border border-panelborder rounded-2xl p-5 flex flex-col h-full max-h-[300px]">
+              <h3 className="text-sm font-medium text-textmuted mb-4">Recent messages</h3>
+              <div className="overflow-y-auto custom-scrollbar flex flex-col gap-4 pr-2">
+                {notifications.length === 0 && (
+                  <p className="text-sm text-textmuted py-4 text-center">
+                    You&apos;re all caught up 🎉
+                  </p>
+                )}
+                {notifications.map((notif, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-start gap-3 pb-4 ${
+                      i < notifications.length - 1 ? "border-b border-panelborder/50" : ""
+                    }`}
+                  >
+                    <div className="mt-0.5">{notifIcon(notif.icon)}</div>
+                    <div>
+                      <p className="text-sm font-medium text-white mb-0.5">{notif.from}</p>
+                      <p className="text-sm text-textmuted">{notif.text}</p>
                     </div>
                   </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
     </div>
   );
 }

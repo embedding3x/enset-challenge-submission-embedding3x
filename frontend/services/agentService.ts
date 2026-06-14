@@ -69,9 +69,15 @@ export interface HintRequest {
   step_title: string;
   step_instructions: string;
   student_code: string;
+  /** Programming language — makes hints language-aware (not HTML-only). */
+  language?: string;
   required_tags: string[];
+  /** Latest compiler/runtime/failed-test output so hints address real errors. */
+  error_output?: string;
   hints_already_given: number;
   previous_hints: string[];
+  /** Failed run attempts so far — drives hint urgency. */
+  attempt_number?: number;
   session_id?: string;
 }
 
@@ -114,42 +120,110 @@ export interface EvaluateAnswersRequest {
   student_code: string;
 }
 
-// ── Generate TP ───────────────────────────────────────────────────────────────
+// ── Generate / Enhance TP ───────────────────────────────────────────────────
 
 export interface GenerateTPRequest {
   prompt: string;
+  /** Highest-priority constraint: the programming language id (java, python, web…). */
+  prog_language: string;
+  /** Prose language for the generated text (fr / en). */
+  ui_language?: string;
   difficulty: string;
   step_count: number;
-  language: string;
+  /** How many quiz questions the agent must generate for each step. */
+  questions_per_step?: number;
   file_names?: string[];
   course_ids?: string[];
 }
 
-export interface GenerateTPResponse {
-  tp: {
+export interface AgentTPContent {
+  context: string;
+  objectives: string[];
+  prerequisites: string[];
+  tools: string[];
+  expectedOutput: string;
+  constraints: string[];
+  evaluationCriteria: Array<{ criterion: string; points: number }>;
+  bonus: string[];
+}
+
+export interface AgentTP {
+  id: string;
+  title: string;
+  description: string;
+  field?: string;
+  difficulty: string;
+  estimatedMinutes: number;
+  language: string;
+  starterHTML: string;
+  content: AgentTPContent;
+  steps: Array<{
     id: string;
     title: string;
-    description: string;
-    difficulty: string;
-    estimatedMinutes: number;
-    starterHTML: string;
-    steps: Array<{
+    instructions: string;
+    requiredTags: string[];
+    quiz: Array<{
       id: string;
-      title: string;
-      instructions: string;
-      requiredTags: string[];
-      quiz: Array<{
-        id: string;
-        question: string;
-        options: { id: string; text: string }[];
-        correctId: string;
-        explanation: string;
-      }>;
+      question: string;
+      options: { id: string; text: string }[];
+      correctId: string;
+      explanation: string;
     }>;
-  };
+  }>;
+  status?: string;
+}
+
+export interface GenerateTPResponse {
+  tp: AgentTP;
   agent: string;
   model: string;
   used_rag: boolean;
+}
+
+export interface EnhanceTPRequest {
+  tp: unknown;
+  prog_language: string;
+  ui_language?: string;
+  /** Optional free-text steering from the teacher. */
+  instructions?: string;
+}
+
+export interface EnhanceTPResponse {
+  tp: AgentTP;
+  agent: string;
+  model: string;
+}
+
+/** Sections that can be regenerated independently in the review step. */
+export type RegenerableSection =
+  | "context"
+  | "objectives"
+  | "prerequisites"
+  | "tools"
+  | "expectedOutput"
+  | "constraints"
+  | "evaluationCriteria"
+  | "bonus"
+  | "starter"
+  | "steps"
+  | "quiz";
+
+export interface RegenerateSectionRequest {
+  section: RegenerableSection;
+  tp: unknown;
+  prog_language: string;
+  ui_language?: string;
+  difficulty?: string;
+  step_count?: number;
+  questions_per_step?: number;
+}
+
+export interface RegenerateSectionResponse {
+  section: RegenerableSection;
+  /** The regenerated value, shaped per section (string | string[] | steps[]…). */
+  value: unknown;
+  agent: string;
+  model: string;
 }
 
 export interface EvaluateAnswersResponse {
@@ -168,6 +242,22 @@ export interface EvaluateAnswersResponse {
   }>;
   agent: string;
   model: string;
+}
+
+export interface ServiceStatus {
+  name: string;
+  kind: string;
+  status: "up" | "degraded" | "down";
+  latency_ms: number;
+  url: string;
+  model?: string;
+  error?: string;
+}
+
+export interface PlatformStatus {
+  overall: "ok" | "degraded" | "down";
+  checked_at: string;
+  services: ServiceStatus[];
 }
 
 // ─── Service ──────────────────────────────────────────────────────────────────
@@ -206,11 +296,45 @@ export const agentService = {
   },
 
   /**
-   * Ask the AI agent to generate a full TP environment from a prompt or uploaded files.
-   * Falls back gracefully when the backend is unavailable.
+   * Ask the AI agent to generate a full, language-specific TP draft from a
+   * prompt or uploaded files. The selected programming language is the
+   * highest-priority constraint. Falls back gracefully when the backend is down.
    */
   async generateTP(req: GenerateTPRequest): Promise<GenerateTPResponse> {
     return post<GenerateTPResponse>("/api/agents/generate-tp", req);
+  },
+
+  /**
+   * AI-assisted refinement of a teacher-reviewed draft. Improves clarity and
+   * academic quality, fixes inconsistencies, keeps the TP aligned with the
+   * selected language — while preserving the teacher's edits.
+   */
+  async enhanceTP(req: EnhanceTPRequest): Promise<EnhanceTPResponse> {
+    return post<EnhanceTPResponse>("/api/agents/enhance-tp", req);
+  },
+
+  /**
+   * Regenerate a single section of the draft (objectives, test cases, starter
+   * code, etc.) without touching the rest of the teacher's work.
+   */
+  async regenerateSection(
+    req: RegenerateSectionRequest
+  ): Promise<RegenerateSectionResponse> {
+    return post<RegenerateSectionResponse>("/api/agents/regenerate-section", req);
+  },
+
+  /** Fetch the list of programming languages the agent supports. */
+  async getSupportedLanguages(): Promise<{ languages: Array<{ id: string; label: string }> }> {
+    const res = await fetch(`${AGENT_BASE}/api/agents/languages`, { method: "GET" });
+    if (!res.ok) throw new Error("Could not load supported languages");
+    return res.json();
+  },
+
+  /** Aggregated health of all agents, the LLM backend and the sandbox (admin/debug). */
+  async getPlatformStatus(): Promise<PlatformStatus> {
+    const res = await fetch(`${AGENT_BASE}/api/agents/status`, { method: "GET" });
+    if (!res.ok) throw new Error(`Status check failed [${res.status}]`);
+    return res.json() as Promise<PlatformStatus>;
   },
 
   /**

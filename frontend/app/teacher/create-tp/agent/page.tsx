@@ -5,242 +5,142 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { tpService } from "@/services/tpService";
-import { agentService } from "@/services/agentService";
+import { agentService, RegenerableSection } from "@/services/agentService";
+import { LANGUAGES, getLanguage, LanguageProfile } from "@/lib/languages";
 import {
-  Upload, FileText, X, Sparkles, Wand2, Loader2,
-  Check, Plus, Trash2, ChevronDown, Code2, ListChecks, Clock,
-  BarChart3, Languages, ShieldCheck, RefreshCw, Download, GraduationCap,
-  Bot, FileCheck2, CircleDot, BookOpen, Cpu, ArrowLeft,
+  buildLocalTP, regenerateLocalSection, DraftTP, FallbackSettings,
+} from "@/lib/tpFallback";
+import { TPContent, TPStep, QuizQuestion, RubricCriterion, TPStatus } from "@/types";
+import {
+  Upload, FileText, X, Sparkles, Wand2, Loader2, Check, Plus, Trash2,
+  ChevronDown, Code2, ListChecks, Clock, BarChart3, Languages, ShieldCheck,
+  RefreshCw, Download, GraduationCap, Bot, FileCheck2, CircleDot, ArrowLeft,
+  Target, Wrench, Trophy, Lightbulb, Gauge, Terminal, ScrollText, Boxes,
 } from "lucide-react";
 
-// ── Catppuccin Mocha palette ──────────────────────────────────────────────────
+// ── Catppuccin-ish palette ─────────────────────────────────────────────────
 const C = {
-  base: "#1a1a2e",
-  mantle: "#181825",
-  surface0: "#1e1e2e",
-  surface1: "#313244",
-  surface2: "#45475a",
-  overlay: "#6c7086",
-  text: "#cdd6f4",
-  subtext: "#a6adc8",
-  mauve: "#cba6f7",
-  blue: "#89b4fa",
-  green: "#a6e3a1",
-  red: "#f38ba8",
-  yellow: "#f9e2af",
-  peach: "#fab387",
-  teal: "#94e2d5",
+  base: "#141724", mantle: "#181b2b", surface0: "#1e2235", surface1: "#2a2f4c",
+  surface2: "#4a5170", overlay: "#8b92b2", text: "#e2e8f0", subtext: "#b6bdd9",
+  mauve: "#c084fc", blue: "#60a5fa", green: "#34d399", red: "#f87171",
+  yellow: "#fbbf24", peach: "#fb923c", teal: "#2dd4bf",
 };
 
 const uid = () => `id-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
 const DIFF = {
-  beginner: { label: { fr: "Débutant", en: "Beginner" }, color: C.green, mins: 25, q: 1 },
-  intermediate: { label: { fr: "Intermédiaire", en: "Intermediate" }, color: C.yellow, mins: 45, q: 2 },
-  advanced: { label: { fr: "Avancé", en: "Advanced" }, color: C.red, mins: 75, q: 2 },
+  beginner: { label: { fr: "Débutant", en: "Beginner" }, color: C.green },
+  intermediate: { label: { fr: "Intermédiaire", en: "Intermediate" }, color: C.yellow },
+  advanced: { label: { fr: "Avancé", en: "Advanced" }, color: C.red },
 };
 
-const STEP_POOL = {
-  fr: [
-    { title: "Structure de base HTML5", tags: ["html", "head", "body", "title"],
-      instr: "Mettez en place le squelette HTML5 : déclaration <!DOCTYPE>, balise <html> avec attribut lang, <head> contenant le titre, et le <body>.",
-      q: ["Quelle balise définit l'encodage du document ?", "À quoi sert l'attribut lang sur <html> ?"] },
-    { title: "En-tête et navigation", tags: ["header", "nav", "ul", "li", "a"],
-      instr: "Créez un en-tête de page avec une barre de navigation. Utilisez une liste de liens pour relier les différentes sections.",
-      q: ["Quelle balise regroupe la navigation principale ?", "Pourquoi utiliser une liste pour un menu ?"] },
-    { title: "Section héro", tags: ["section", "h1", "p", "img"],
-      instr: "Construisez une section d'accroche avec un titre principal, un paragraphe d'introduction et une image illustrative avec son attribut alt.",
-      q: ["Combien de balises <h1> par page est recommandé ?", "À quoi sert l'attribut alt d'une image ?"] },
-    { title: "Formulaire de contact", tags: ["form", "label", "input", "textarea", "button"],
-      instr: "Ajoutez un formulaire accessible : chaque champ doit être associé à un <label>, avec un champ message et un bouton d'envoi.",
-      q: ["Comment lier un <label> à un <input> ?", "Quel type d'input pour un email ?"] },
-    { title: "Contenu sémantique", tags: ["main", "article", "aside", "figure"],
-      instr: "Organisez le contenu principal avec des balises sémantiques. Distinguez le contenu central des informations annexes.",
-      q: ["Quelle balise pour le contenu principal unique ?", "Différence entre <article> et <section> ?"] },
-    { title: "Pied de page", tags: ["footer", "p", "a", "small"],
-      instr: "Terminez la page par un pied de page contenant les mentions légales, des liens et l'année courante.",
-      q: ["Quelle balise pour le pied de page ?", "Comment marquer une mention légale discrète ?"] },
-  ],
-  en: [
-    { title: "Base HTML5 structure", tags: ["html", "head", "body", "title"],
-      instr: "Set up the HTML5 skeleton: <!DOCTYPE>, <html> with a lang attribute, a <head> with the title, and the <body>.",
-      q: ["Which tag declares the document encoding?", "What is the lang attribute on <html> for?"] },
-    { title: "Header & navigation", tags: ["header", "nav", "ul", "li", "a"],
-      instr: "Create a page header with a navigation bar. Use a list of links to connect the page sections.",
-      q: ["Which tag wraps the main navigation?", "Why use a list for a menu?"] },
-    { title: "Hero section", tags: ["section", "h1", "p", "img"],
-      instr: "Build a hero section with a main heading, an intro paragraph and an illustrative image with its alt attribute.",
-      q: ["How many <h1> per page is recommended?", "What is an image alt attribute for?"] },
-    { title: "Contact form", tags: ["form", "label", "input", "textarea", "button"],
-      instr: "Add an accessible form: every field bound to a <label>, a message field, and a submit button.",
-      q: ["How do you link a <label> to an <input>?", "Which input type for an email?"] },
-    { title: "Semantic content", tags: ["main", "article", "aside", "figure"],
-      instr: "Organise the main content with semantic tags. Separate core content from side information.",
-      q: ["Which tag holds the single main content?", "Difference between <article> and <section>?"] },
-    { title: "Footer", tags: ["footer", "p", "a", "small"],
-      instr: "Finish the page with a footer containing legal notice, links and the current year.",
-      q: ["Which tag is the page footer?", "How to mark a small legal note?"] },
-  ],
-};
+const STATUS_FLOW: { id: TPStatus; label: { fr: string; en: string } }[] = [
+  { id: "draft", label: { fr: "Brouillon", en: "Draft" } },
+  { id: "reviewed", label: { fr: "Relu", en: "Reviewed" } },
+  { id: "enhanced", label: { fr: "Amélioré", en: "Enhanced" } },
+  { id: "published", label: { fr: "Publié", en: "Published" } },
+];
 
-function buildQuiz(prompts: string[], lang: string) {
-  return prompts.map((p) => ({
-    id: uid(),
-    question: p,
-    options: [
-      { id: "a", text: lang === "fr" ? "Réponse A" : "Answer A" },
-      { id: "b", text: lang === "fr" ? "Réponse B" : "Answer B" },
-      { id: "c", text: lang === "fr" ? "Réponse C" : "Answer C" },
-      { id: "d", text: lang === "fr" ? "Réponse D" : "Answer D" },
-    ],
-    correctId: "a",
-    explanation: lang === "fr"
-      ? "Justification générée — à relire."
-      : "Rationale drafted from the énoncé — please review.",
+// ── Types ───────────────────────────────────────────────────────────────────
+interface UploadedFile { id: string; name: string; size: number; kind: "enonce" | "annexe"; }
+
+interface Settings {
+  progLang: string;          // mandatory programming language id ("" = none yet)
+  difficulty: "beginner" | "intermediate" | "advanced";
+  stepCount: number;
+  questionCount: number;
+  uiLang: "fr" | "en";       // prose language of the generated text
+  antiCheat: boolean;
+  prompt: string;
+}
+
+// ── Shape coercion (defensive for both LLM and local output) ─────────────────
+function coerceOptions(options: { id?: string; text?: string }[] | undefined): QuizQuestion["options"] {
+  const letters = ["a", "b", "c", "d"];
+  const out = (options ?? []).map((o, i) => ({ id: o.id ?? letters[i] ?? String(i), text: o.text ?? "" }));
+  while (out.length < 4) out.push({ id: letters[out.length], text: "" });
+  return out;
+}
+
+function coerceQuiz(quiz: any[] | undefined): QuizQuestion[] {
+  return (quiz ?? []).map((q) => {
+    const options = coerceOptions(q.options);
+    const correctId = options.some((o) => o.id === (q.correctId ?? q.correct_id))
+      ? (q.correctId ?? q.correct_id) : options[0]?.id ?? "a";
+    return { id: q.id ?? uid(), question: q.question ?? "", options, correctId, explanation: q.explanation ?? "" };
+  });
+}
+
+function coerceTestCases(value: any[] | undefined): { id?: string; name: string; stdin: string; expectedStdout: string }[] {
+  return (value ?? []).map((t, i) => ({
+    id: t.id ?? uid(),
+    name: t.name ?? `Test ${i + 1}`,
+    stdin: t.stdin ?? "",
+    expectedStdout: t.expectedStdout ?? t.expected_stdout ?? "",
   }));
 }
 
-function buildTP(settings: Settings, files: UploadedFile[], createdBy: string) {
-  const { difficulty, stepCount, language, antiCheat, prompt } = settings;
-  const d = DIFF[difficulty as keyof typeof DIFF];
-  const pool = STEP_POOL[language as keyof typeof STEP_POOL];
-  const enonce = files.find((f) => f.kind === "enonce");
-  const steps = Array.from({ length: stepCount }).map((_, i) => {
-    const t = pool[i % pool.length];
-    return {
-      id: uid(),
-      title: t.title,
-      instructions: t.instr,
-      requiredTags: [...t.tags],
-      quiz: buildQuiz(t.q.slice(0, d.q), language),
-    };
-  });
+function coerceSteps(steps: any[] | undefined): TPStep[] {
+  return (steps ?? []).map((s) => ({
+    id: s.id ?? uid(),
+    title: s.title ?? "",
+    instructions: s.instructions ?? "",
+    requiredTags: s.requiredTags ?? s.required_tags ?? [],
+    testCases: coerceTestCases(s.testCases ?? s.test_cases),
+    quiz: coerceQuiz(s.quiz),
+  }));
+}
 
-  const enonceTitle = enonce
-    ? enonce.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim()
-    : null;
-  const promptTitle = prompt.trim().length > 0
-    ? (prompt.trim().length > 60 ? prompt.trim().slice(0, 57) + "…" : prompt.trim())
-    : null;
-  const title = enonceTitle || promptTitle
-    || (language === "fr" ? "Nouveau TP — Page web" : "New TP — Web page");
+function coerceCriteria(value: any[] | undefined): RubricCriterion[] {
+  return (value ?? []).map((c) =>
+    typeof c === "string"
+      ? { criterion: c, points: 0 }
+      : { criterion: c.criterion ?? c.label ?? "", points: Number(c.points) || 0 }
+  );
+}
 
+const asStrings = (v: any): string[] => (Array.isArray(v) ? v.map(String) : v == null ? [] : [String(v)]);
+
+function coerceContent(c: any): TPContent {
+  c = c ?? {};
   return {
-    id: uid(),
-    title: title.charAt(0).toUpperCase() + title.slice(1),
-    description: language === "fr"
-      ? `TP généré par l'agent IA. Objectif : maîtriser la structure HTML sémantique.`
-      : `TP drafted by AI agent. Goal: master semantic HTML structure.`,
-    field: "Développement Web",
-    difficulty,
-    estimatedMinutes: d.mins,
-    starterHTML: `<!DOCTYPE html>\n<html lang="${language}">\n<head>\n  <meta charset="UTF-8" />\n  <title><!-- ${language === "fr" ? "à compléter" : "to complete"} --></title>\n</head>\n<body>\n  <!-- ${language === "fr" ? "Commencez ici" : "Start here"} -->\n</body>\n</html>`,
-    steps,
-    antiCheat,
+    context: c.context ?? "",
+    objectives: asStrings(c.objectives),
+    prerequisites: asStrings(c.prerequisites),
+    tools: asStrings(c.tools),
+    expectedOutput: c.expectedOutput ?? c.expected_output ?? "",
+    constraints: asStrings(c.constraints),
+    evaluationCriteria: coerceCriteria(c.evaluationCriteria ?? c.evaluation_criteria),
+    bonus: asStrings(c.bonus),
+  };
+}
+
+function coerceDraft(raw: any, profile: LanguageProfile, s: Settings, createdBy: string): DraftTP {
+  return {
+    id: raw.id ?? uid(),
+    title: raw.title ?? `${profile.label} — TP`,
+    description: raw.description ?? "",
+    field: raw.field ?? "",
+    difficulty: (["beginner", "intermediate", "advanced"].includes(raw.difficulty) ? raw.difficulty : s.difficulty),
+    estimatedMinutes: Number(raw.estimatedMinutes) || 45,
+    language: profile.id,
+    starterHTML: raw.starterHTML ?? raw.starter ?? profile.starter,
+    content: coerceContent(raw.content),
+    steps: coerceSteps(raw.steps),
+    status: "draft",
+    antiCheat: s.antiCheat,
     createdBy,
     createdAt: new Date().toISOString(),
   };
 }
 
-const logScript = (files: UploadedFile[], settings: Settings) => {
-  const fr = settings.language === "fr";
-  const enonce = files.find((f) => f.kind === "enonce");
-  const ann = files.filter((f) => f.kind === "annexe").length;
-  const hasPrompt = settings.prompt.trim().length > 0;
-  return [
-    ...(enonce ? [{ icon: FileCheck2, color: C.blue, t: fr ? `Lecture de l'énoncé « ${enonce.name} »…` : `Reading énoncé "${enonce.name}"…` }] : []),
-    ...(ann ? [{ icon: BookOpen, color: C.teal, t: fr ? `Analyse de ${ann} annexe(s)…` : `Analysing ${ann} annexe(s)…` }] : []),
-    ...(hasPrompt ? [{ icon: Sparkles, color: C.peach, t: fr ? "Prise en compte de la consigne…" : "Reading the teacher's prompt…" }] : []),
-    { icon: Cpu, color: C.mauve, t: fr ? "Extraction des objectifs pédagogiques…" : "Extracting learning objectives…" },
-    { icon: ListChecks, color: C.peach, t: fr ? `Découpage en ${settings.stepCount} étapes progressives…` : `Splitting into ${settings.stepCount} progressive steps…` },
-    { icon: Code2, color: C.yellow, t: fr ? "Détection des balises HTML requises…" : "Detecting required HTML tags…" },
-    { icon: GraduationCap, color: C.green, t: fr ? "Génération des QCM de compréhension…" : "Generating comprehension quizzes…" },
-    { icon: Check, color: C.green, t: fr ? "Environnement de TP prêt pour relecture." : "TP environment ready for review." },
-  ];
-};
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-interface UploadedFile {
-  id: string;
-  name: string;
-  size: number;
-  kind: "enonce" | "annexe";
-}
-
-interface Settings {
-  difficulty: string;
-  stepCount: number;
-  language: string;
-  antiCheat: boolean;
-  prompt: string;
-}
-
-interface QuizQ {
-  id: string;
-  question: string;
-  options: { id: string; text: string }[];
-  correctId: string;
-  explanation: string;
-}
-
-interface TPStep {
-  id: string;
-  title: string;
-  instructions: string;
-  requiredTags: string[];
-  quiz: QuizQ[];
-}
-
-interface GeneratedTP {
-  id: string;
-  title: string;
-  description: string;
-  field?: string;
-  difficulty: string;
-  estimatedMinutes: number;
-  starterHTML: string;
-  steps: TPStep[];
-  antiCheat?: boolean;
-  createdBy: string;
-  createdAt: string;
-}
-
-// ── Atoms ─────────────────────────────────────────────────────────────────────
+// ── Small atoms ───────────────────────────────────────────────────────────────
 function Pill({ children, color }: { children: React.ReactNode; color: string }) {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
       style={{ background: `${color}1f`, color, border: `1px solid ${color}3a` }}>
       {children}
     </span>
-  );
-}
-
-function FileCard({ f, onToggle, onRemove, lang }: { f: UploadedFile; onToggle: (id: string) => void; onRemove: (id: string) => void; lang: string }) {
-  const isE = f.kind === "enonce";
-  const col = isE ? C.mauve : C.teal;
-  return (
-    <div className="flex items-center gap-3 rounded-xl p-3 transition-colors"
-      style={{ background: C.mantle, border: `1px solid ${C.surface1}` }}>
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-        style={{ background: `${col}1f`, color: col }}>
-        <FileText size={17} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm" style={{ color: C.text }}>{f.name}</div>
-        <div className="text-xs" style={{ color: C.overlay }}>{(f.size / 1024).toFixed(0)} KB</div>
-      </div>
-      <button onClick={() => onToggle(f.id)}
-        className="rounded-md px-2 py-1 text-xs font-medium transition-colors"
-        style={{ background: `${col}1f`, color: col, border: `1px solid ${col}3a` }}>
-        {isE ? "Énoncé" : "Annexe"}
-      </button>
-      <button onClick={() => onRemove(f.id)} className="rounded-md p-1 transition-colors"
-        style={{ color: C.overlay }}
-        onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = C.red)}
-        onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = C.overlay)}>
-        <X size={16} />
-      </button>
-    </div>
   );
 }
 
@@ -255,7 +155,7 @@ function Field({ label, icon: Icon, children }: { label: string; icon: React.Ele
   );
 }
 
-function Seg({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { v: string; label: string; c?: string }[] }) {
+function Seg<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { v: T; label: string; c?: string }[] }) {
   return (
     <div className="flex gap-1 rounded-lg p-1" style={{ background: C.mantle, border: `1px solid ${C.surface1}` }}>
       {options.map((o) => {
@@ -274,7 +174,94 @@ function Seg({ value, onChange, options }: { value: string; onChange: (v: string
   );
 }
 
-function QuizCard({ q, onChange, onRemove, lang }: { q: QuizQ; onChange: (q: QuizQ) => void; onRemove: () => void; lang: string }) {
+function RegenButton({ busy, onClick, lang }: { busy: boolean; onClick: () => void; lang: "fr" | "en" }) {
+  return (
+    <button onClick={onClick} disabled={busy}
+      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors"
+      style={{ background: `${C.mauve}1a`, color: C.mauve, border: `1px solid ${C.mauve}33`, opacity: busy ? 0.6 : 1 }}>
+      {busy ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+      {lang === "fr" ? "Régénérer" : "Regenerate"}
+    </button>
+  );
+}
+
+function SectionCard({ icon: Icon, color, title, action, children }: {
+  icon: React.ElementType; color: string; title: string; action?: React.ReactNode; children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl p-4" style={{ background: C.surface0, border: `1px solid ${C.surface1}` }}>
+      <div className="mb-3 flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtext }}>
+          <Icon size={14} style={{ color }} /> {title}
+        </span>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// List of free-text strings with add/remove.
+function ListEditor({ items, onChange, placeholder, lang }: {
+  items: string[]; onChange: (items: string[]) => void; placeholder: string; lang: "fr" | "en";
+}) {
+  return (
+    <div className="space-y-2">
+      {items.map((it, i) => (
+        <div key={i} className="flex items-start gap-2">
+          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: C.overlay }} />
+          <textarea value={it} rows={1}
+            onChange={(e) => onChange(items.map((x, xi) => (xi === i ? e.target.value : x)))}
+            className="flex-1 resize-none rounded-lg px-3 py-1.5 text-sm outline-none"
+            style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.text }} />
+          <button onClick={() => onChange(items.filter((_, xi) => xi !== i))} className="mt-1.5 rounded-md p-1" style={{ color: C.overlay }}>
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+      <button onClick={() => onChange([...items, ""])}
+        className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: C.mauve }}>
+        <Plus size={12} /> {placeholder}
+      </button>
+    </div>
+  );
+}
+
+function RubricEditor({ items, onChange, lang }: { items: RubricCriterion[]; onChange: (items: RubricCriterion[]) => void; lang: "fr" | "en" }) {
+  const total = items.reduce((s, c) => s + (Number(c.points) || 0), 0);
+  return (
+    <div className="space-y-2">
+      {items.map((c, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <input value={c.criterion}
+            onChange={(e) => onChange(items.map((x, xi) => (xi === i ? { ...x, criterion: e.target.value } : x)))}
+            placeholder={lang === "fr" ? "Critère…" : "Criterion…"}
+            className="flex-1 rounded-lg px-3 py-1.5 text-sm outline-none"
+            style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.text }} />
+          <input type="number" value={c.points}
+            onChange={(e) => onChange(items.map((x, xi) => (xi === i ? { ...x, points: Number(e.target.value) || 0 } : x)))}
+            className="w-16 rounded-lg px-2 py-1.5 text-center text-sm outline-none"
+            style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.text }} />
+          <span className="text-xs" style={{ color: C.overlay }}>pts</span>
+          <button onClick={() => onChange(items.filter((_, xi) => xi !== i))} className="rounded-md p-1" style={{ color: C.overlay }}>
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+      <div className="flex items-center justify-between">
+        <button onClick={() => onChange([...items, { criterion: "", points: 0 }])}
+          className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: C.mauve }}>
+          <Plus size={12} /> {lang === "fr" ? "Critère" : "Criterion"}
+        </button>
+        <span className="text-xs font-medium" style={{ color: total === 100 ? C.green : C.yellow }}>
+          {lang === "fr" ? "Total" : "Total"}: {total}/100
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function QuizCard({ q, onChange, onRemove, lang }: { q: QuizQuestion; onChange: (q: QuizQuestion) => void; onRemove: () => void; lang: "fr" | "en" }) {
   return (
     <div className="rounded-lg p-3" style={{ background: C.base, border: `1px solid ${C.surface1}` }}>
       <div className="mb-2 flex items-start gap-2">
@@ -282,11 +269,7 @@ function QuizCard({ q, onChange, onRemove, lang }: { q: QuizQ; onChange: (q: Qui
           placeholder={lang === "fr" ? "Question…" : "Question…"}
           className="flex-1 rounded-md px-2 py-1.5 text-sm outline-none"
           style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.text }} />
-        <button onClick={onRemove} className="rounded-md p-1.5" style={{ color: C.overlay }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = C.red)}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = C.overlay)}>
-          <Trash2 size={14} />
-        </button>
+        <button onClick={onRemove} className="rounded-md p-1.5" style={{ color: C.overlay }}><Trash2 size={14} /></button>
       </div>
       <div className="grid grid-cols-2 gap-1.5">
         {q.options.map((o) => {
@@ -298,10 +281,8 @@ function QuizCard({ q, onChange, onRemove, lang }: { q: QuizQ; onChange: (q: Qui
                 style={correct ? { background: C.green, color: C.base } : { border: `1px solid ${C.surface2}`, color: "transparent" }}>
                 <Check size={11} />
               </button>
-              <input value={o.text} onChange={(e) => {
-                const options = q.options.map((x) => x.id === o.id ? { ...x, text: e.target.value } : x);
-                onChange({ ...q, options });
-              }}
+              <input value={o.text}
+                onChange={(e) => onChange({ ...q, options: q.options.map((x) => (x.id === o.id ? { ...x, text: e.target.value } : x)) })}
                 className="w-full rounded-md px-2 py-1 text-xs outline-none"
                 style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.text }} />
             </div>
@@ -312,14 +293,21 @@ function QuizCard({ q, onChange, onRemove, lang }: { q: QuizQ; onChange: (q: Qui
   );
 }
 
-function StepCard({ step, index, onChange, onRemove, lang }: { step: TPStep; index: number; onChange: (s: TPStep) => void; onRemove: () => void; lang: string }) {
+function StepCard({ step, index, onChange, onRemove, lang, reqLabel }: {
+  step: TPStep; index: number; onChange: (s: TPStep) => void; onRemove: () => void; lang: "fr" | "en"; reqLabel: string;
+}) {
   const [open, setOpen] = useState(index === 0);
   const [tagInput, setTagInput] = useState("");
   const addTag = () => {
-    const t = tagInput.trim().toLowerCase().replace(/[<>]/g, "");
+    const t = tagInput.trim().replace(/[<>]/g, "");
     if (t && !step.requiredTags.includes(t)) onChange({ ...step, requiredTags: [...step.requiredTags, t] });
     setTagInput("");
   };
+  const newQuestion = (): QuizQuestion => ({
+    id: uid(), question: "",
+    options: [{ id: "a", text: "" }, { id: "b", text: "" }, { id: "c", text: "" }, { id: "d", text: "" }],
+    correctId: "a", explanation: "",
+  });
   return (
     <div className="rounded-xl overflow-hidden" style={{ background: C.surface0, border: `1px solid ${C.surface1}` }}>
       <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-3 px-4 py-3 text-left">
@@ -328,7 +316,7 @@ function StepCard({ step, index, onChange, onRemove, lang }: { step: TPStep; ind
         <span className="flex-1 truncate text-sm font-medium" style={{ color: C.text }}>
           {step.title || (lang === "fr" ? "Étape sans titre" : "Untitled step")}
         </span>
-        <span className="text-xs" style={{ color: C.overlay }}>{step.requiredTags.length} tags · {step.quiz.length} Q</span>
+        <span className="text-xs" style={{ color: C.overlay }}>{step.requiredTags.length} · {step.quiz.length} Q</span>
         <ChevronDown size={16} style={{ color: C.overlay, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
       </button>
       {open && (
@@ -342,43 +330,33 @@ function StepCard({ step, index, onChange, onRemove, lang }: { step: TPStep; ind
             className="w-full resize-none rounded-lg px-3 py-2 text-sm outline-none"
             style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.text }} />
           <div>
-            <span className="mb-1.5 block text-xs font-medium" style={{ color: C.subtext }}>
-              {lang === "fr" ? "Balises HTML requises" : "Required HTML tags"}
-            </span>
+            <span className="mb-1.5 block text-xs font-medium" style={{ color: C.subtext }}>{reqLabel}</span>
             <div className="flex flex-wrap items-center gap-1.5">
               {step.requiredTags.map((t) => (
                 <span key={t} className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-mono text-xs"
                   style={{ background: `${C.blue}1f`, color: C.blue, border: `1px solid ${C.blue}3a` }}>
-                  &lt;{t}&gt;
-                  <button onClick={() => onChange({ ...step, requiredTags: step.requiredTags.filter((x) => x !== t) })}>
-                    <X size={11} />
-                  </button>
+                  {t}
+                  <button onClick={() => onChange({ ...step, requiredTags: step.requiredTags.filter((x) => x !== t) })}><X size={11} /></button>
                 </span>
               ))}
               <input value={tagInput} onChange={(e) => setTagInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addTag())}
-                placeholder={lang === "fr" ? "+ balise" : "+ tag"}
-                className="w-20 rounded-md px-2 py-1 font-mono text-xs outline-none"
+                placeholder={lang === "fr" ? "+ ajouter" : "+ add"}
+                className="w-24 rounded-md px-2 py-1 font-mono text-xs outline-none"
                 style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.text }} />
             </div>
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium" style={{ color: C.subtext }}>
-                {lang === "fr" ? "QCM de compréhension" : "Comprehension quiz"}
-              </span>
-              <button onClick={() => onChange({ ...step, quiz: [...step.quiz, ...buildQuiz([""], lang)] })}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs"
-                style={{ color: C.mauve }}>
+              <span className="text-xs font-medium" style={{ color: C.subtext }}>{lang === "fr" ? "QCM de compréhension" : "Comprehension quiz"}</span>
+              <button onClick={() => onChange({ ...step, quiz: [...step.quiz, newQuestion()] })}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs" style={{ color: C.mauve }}>
                 <Plus size={12} /> {lang === "fr" ? "Question" : "Question"}
               </button>
             </div>
             {step.quiz.map((q, qi) => (
               <QuizCard key={q.id} q={q} lang={lang}
-                onChange={(nq) => {
-                  const quiz = [...step.quiz]; quiz[qi] = nq;
-                  onChange({ ...step, quiz });
-                }}
+                onChange={(nq) => onChange({ ...step, quiz: step.quiz.map((x, i) => (i === qi ? nq : x)) })}
                 onRemove={() => onChange({ ...step, quiz: step.quiz.filter((_, i) => i !== qi) })} />
             ))}
           </div>
@@ -398,143 +376,172 @@ export default function AgentTPCreatorPage() {
 
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
-  const [status, setStatus] = useState<"idle" | "thinking" | "done">("idle");
-  const [log, setLog] = useState<{ icon: React.ElementType; color: string; t: string }[]>([]);
-  const [tp, setTp] = useState<GeneratedTP | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [enhancing, setEnhancing] = useState(false);
+  const [regen, setRegen] = useState<RegenerableSection | null>(null);
+  const [tp, setTp] = useState<DraftTP | null>(null);
+  const [usedLocal, setUsedLocal] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [published, setPublished] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const timers = useRef<NodeJS.Timeout[]>([]);
 
   const [settings, setSettings] = useState<Settings>({
+    progLang: "",
     difficulty: "intermediate",
     stepCount: 4,
-    language: "fr",
+    questionCount: 2,
+    uiLang: "fr",
     antiCheat: true,
     prompt: "",
   });
-  const L = settings.language;
+  const L = settings.uiLang;
+  const profile = getLanguage(settings.progLang);
+  const reqLabel = profile?.requirement === "tags"
+    ? (L === "fr" ? "Balises HTML requises" : "Required HTML tags")
+    : (L === "fr" ? "Mots-clés / concepts requis" : "Required keywords / concepts");
 
+  const fbSettings = (): FallbackSettings => ({
+    difficulty: settings.difficulty, stepCount: settings.stepCount,
+    questionCount: settings.questionCount, uiLang: settings.uiLang,
+    antiCheat: settings.antiCheat, prompt: settings.prompt,
+  });
+
+  // ── File handling ──────────────────────────────────────────────────────────
   const addFiles = useCallback((list: FileList) => {
-    const incoming: UploadedFile[] = Array.from(list).map((f, i) => ({
-      id: uid(), name: f.name, size: f.size,
-      kind: files.length === 0 && i === 0 ? "enonce" : "annexe",
-    }));
-    setFiles((p) => [...p, ...incoming]);
-  }, [files.length]);
-
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault(); setDragOver(false);
-    if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
-  };
-  const toggleKind = (id: string) =>
-    setFiles((p) => p.map((f) => f.id === id ? { ...f, kind: f.kind === "enonce" ? "annexe" : "enonce" } : f));
+    setFiles((p) => [
+      ...p,
+      ...Array.from(list).map((f, i) => ({
+        id: uid(), name: f.name, size: f.size,
+        kind: (p.length === 0 && i === 0 ? "enonce" : "annexe") as "enonce" | "annexe",
+      })),
+    ]);
+  }, []);
+  const onDrop = (e: React.DragEvent) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files); };
   const removeFile = (id: string) => setFiles((p) => p.filter((f) => f.id !== id));
 
-  const hasEnonce = files.some((f) => f.kind === "enonce");
-  const hasPrompt = settings.prompt.trim().length > 0;
-  const canGenerate = hasEnonce || hasPrompt;
+  const hasInput = files.length > 0 || settings.prompt.trim().length > 0;
+  const canGenerate = !!profile && hasInput;
 
+  // ── Edits move the draft into "reviewed" (teacher edits have priority) ──────
+  const editTP = (updater: (t: DraftTP) => DraftTP) =>
+    setTp((p) => {
+      if (!p) return p;
+      const next = updater(p);
+      if (next.status === "draft" || next.status === "enhanced") next.status = "reviewed";
+      return next;
+    });
+  const editContent = (key: keyof TPContent, value: any) =>
+    editTP((t) => ({ ...t, content: { ...t.content, [key]: value } }));
+
+  // ── Generate draft ───────────────────────────────────────────────────────
   const generate = async () => {
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
-    setStatus("thinking");
-    setTp(null);
-    setLog([]);
-    setPublished(false);
-
-    const script = logScript(files, settings);
-
-    // Try real agent API first, fall back to local generation
-    let agentResult: GeneratedTP | null = null;
+    if (!profile) return;
+    setGenerating(true); setTp(null); setPublished(false); setNotice(null); setUsedLocal(false);
+    const createdBy = user?.id ?? "teacher";
     try {
-      const result = await agentService.generateTP({
+      const res = await agentService.generateTP({
         prompt: settings.prompt,
+        prog_language: profile.id,
+        ui_language: settings.uiLang,
         difficulty: settings.difficulty,
         step_count: settings.stepCount,
-        language: settings.language,
+        questions_per_step: settings.questionCount,
         file_names: files.map((f) => f.name),
       });
-      if (result?.tp) {
-        const rawTp = result.tp;
-        agentResult = {
-          ...rawTp,
-          // LLMs often return snake_case — normalize to camelCase
-          steps: (rawTp.steps ?? []).map((s: any) => ({
-            ...s,
-            requiredTags: s.requiredTags ?? s.required_tags ?? [],
-            quiz: (s.quiz ?? []).map((q: any) => ({
-              ...q,
-              correctId: q.correctId ?? q.correct_id ?? (q.options?.[0]?.id ?? "a"),
-              options: (q.options ?? []).map((o: any, i: number) => ({
-                id: o.id ?? String.fromCharCode(97 + i),
-                text: o.text ?? o.label ?? "",
-              })),
-            })),
-          })),
-          createdBy: user?.id ?? "teacher",
-          createdAt: new Date().toISOString(),
-        };
-      }
+      setTp(coerceDraft(res.tp, profile, settings, createdBy));
     } catch {
-      // agent unavailable — use local generation
+      setUsedLocal(true);
+      setNotice(L === "fr"
+        ? "Service IA indisponible — brouillon généré localement (spécifique au langage)."
+        : "AI service unavailable — draft generated locally (language-specific).");
+      setTp(buildLocalTP(profile, fbSettings(), createdBy));
+    } finally {
+      setGenerating(false);
     }
-
-    script.forEach((entry, i) => {
-      const t = setTimeout(() => {
-        setLog((p) => [...p, entry]);
-        if (i === script.length - 1) {
-          const t2 = setTimeout(() => {
-            setTp(agentResult ?? buildTP(settings, files, user?.id ?? "teacher"));
-            setStatus("done");
-          }, 450);
-          timers.current.push(t2);
-        }
-      }, 600 + i * 650);
-      timers.current.push(t);
-    });
   };
 
-  const setStep = (si: number, s: TPStep) =>
-    setTp((p) => p ? { ...p, steps: p.steps.map((x, i) => i === si ? s : x) } : p);
+  // ── Enhance (AI refinement, preserves teacher edits) ────────────────────────
+  const enhance = async () => {
+    if (!tp || !profile) return;
+    setEnhancing(true); setNotice(null);
+    try {
+      const res = await agentService.enhanceTP({
+        tp, prog_language: profile.id, ui_language: settings.uiLang,
+      });
+      const next = coerceDraft(res.tp, profile, settings, tp.createdBy);
+      setTp({ ...next, id: tp.id, status: "enhanced", antiCheat: tp.antiCheat });
+    } catch {
+      setNotice(L === "fr"
+        ? "Amélioration IA indisponible (service hors-ligne). Vos modifications sont conservées."
+        : "AI enhancement unavailable (service offline). Your edits are preserved.");
+    } finally {
+      setEnhancing(false);
+    }
+  };
 
-  const addStep = () => setTp((p) => p ? ({
-    ...p,
-    steps: [...p.steps, { id: uid(), title: "", instructions: "", requiredTags: [], quiz: buildQuiz([""], L) }],
-  }) : p);
+  // ── Regenerate a single section ─────────────────────────────────────────────
+  const applySection = (section: RegenerableSection, value: any) => {
+    if (value == null) return;
+    if (section === "steps") return editTP((t) => ({ ...t, steps: coerceSteps(value) }));
+    if (section === "quiz") {
+      const quizzes: QuizQuestion[][] = (value as any[]).map((q) => coerceQuiz(q));
+      return editTP((t) => ({ ...t, steps: t.steps.map((s, i) => (quizzes[i] ? { ...s, quiz: quizzes[i] } : s)) }));
+    }
+    if (section === "starter") return editTP((t) => ({ ...t, starterHTML: String(value) }));
+    if (section === "evaluationCriteria") return editContent("evaluationCriteria", coerceCriteria(value));
+    if (section === "context" || section === "expectedOutput") return editContent(section, String(value));
+    return editContent(section as keyof TPContent, asStrings(value));
+  };
 
+  const regenerate = async (section: RegenerableSection) => {
+    if (!tp || !profile) return;
+    setRegen(section); setNotice(null);
+    try {
+      const res = await agentService.regenerateSection({
+        section, tp, prog_language: profile.id, ui_language: settings.uiLang,
+        difficulty: settings.difficulty, step_count: settings.stepCount, questions_per_step: settings.questionCount,
+      });
+      applySection(section, res.value);
+    } catch {
+      applySection(section, regenerateLocalSection(section, profile, fbSettings()));
+    } finally {
+      setRegen(null);
+    }
+  };
+
+  // ── Export / Publish ────────────────────────────────────────────────────────
   const exportJSON = () => {
     if (!tp) return;
-    const { antiCheat: _, ...rest } = tp;
-    const payload = JSON.stringify(rest, null, 2);
-    navigator.clipboard?.writeText(payload).then(() => {
-      setCopied(true); setTimeout(() => setCopied(false), 1800);
-    }).catch(() => {});
+    navigator.clipboard?.writeText(JSON.stringify(tp, null, 2))
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); }).catch(() => {});
   };
 
   const handlePublish = async () => {
-    if (!tp) return;
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { antiCheat: _, ...tpData } = tp;
+    if (!tp || !profile) return;
     const created = await tpService.saveTP({
-      ...tpData,
-      field: tpData.field ?? "Développement Web",
-      difficulty: tpData.difficulty as "beginner" | "intermediate" | "advanced",
-    });
-    if (!created) { alert("Could not publish the TP. Is the backend running?"); return; }
+      ...tp,
+      field: tp.field || profile.label,
+      difficulty: tp.difficulty,
+      language: profile.validatorId, // canonical id the student IDE & validator understand
+      content: tp.content,
+      status: "published",
+      antiCheat: tp.antiCheat,
+    } as any);
+    if (!created) { setNotice(L === "fr" ? "Publication impossible. Le backend est-il démarré ?" : "Could not publish. Is the backend running?"); return; }
     setPublished(true);
     setTimeout(() => router.push("/teacher/dashboard"), 1400);
   };
+
+  const statusIndex = tp ? STATUS_FLOW.findIndex((s) => s.id === tp.status) : -1;
 
   return (
     <div className="min-h-screen w-full" style={{ background: C.base, color: C.text }}>
       <style>{`
         @keyframes riseIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes glowPulse{0%,100%{opacity:.5}50%{opacity:1}}
-        .rise{animation:riseIn .45s cubic-bezier(.4,0,.2,1) both}
+        .rise{animation:riseIn .4s cubic-bezier(.4,0,.2,1) both}
       `}</style>
 
-      {/* atmosphere */}
       <div className="pointer-events-none fixed inset-0" style={{
         background: `radial-gradient(900px 500px at 80% -10%, ${C.mauve}14, transparent 60%), radial-gradient(700px 400px at 0% 100%, ${C.blue}10, transparent 55%)`,
       }} />
@@ -543,84 +550,94 @@ export default function AgentTPCreatorPage() {
       <nav className="z-10 border-b px-6 py-3.5 flex items-center justify-between sticky top-0"
         style={{ background: `${C.mantle}ee`, borderColor: C.surface1, backdropFilter: "blur(12px)" }}>
         <div className="flex items-center gap-3">
-          <Link href="/teacher/dashboard"
-            className="flex items-center gap-1.5 text-sm transition-colors"
-            style={{ color: C.overlay }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = C.text)}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = C.overlay)}>
+          <Link href="/teacher/dashboard" className="flex items-center gap-1.5 text-sm" style={{ color: C.overlay }}>
             <ArrowLeft size={15} /> Dashboard
           </Link>
           <span style={{ color: C.surface2 }}>/</span>
-          <span className="text-sm font-medium" style={{ color: C.text }}>Créer un TP</span>
+          <span className="text-sm font-medium" style={{ color: C.text }}>{L === "fr" ? "Créer un TP" : "Create TP"}</span>
           <span style={{ color: C.surface2 }}>/</span>
           <span className="text-sm font-medium" style={{ color: C.mauve }}>Agent IA</span>
         </div>
-        <Pill color={C.mauve}><Bot size={12} /> orchestrator · deepseek-v3</Pill>
+        <Pill color={C.mauve}><Bot size={12} /> {profile ? profile.label : (L === "fr" ? "langage non choisi" : "no language")}</Pill>
       </nav>
 
       <div className="relative mx-auto max-w-[1320px] px-5 py-6 md:px-8">
         {/* Header */}
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl"
-              style={{ background: `linear-gradient(135deg, ${C.mauve}, ${C.blue})`, color: C.base }}>
-              <Wand2 size={20} />
-              <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full"
-                style={{ background: C.green, color: C.base, border: `2px solid ${C.base}` }}>
-                <Sparkles size={9} />
-              </span>
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold leading-tight" style={{ color: C.text }}>
-                {L === "fr" ? "Créateur de TP par l'Agent IA" : "AI Agent TP Creator"}
-              </h1>
-              <p className="text-xs" style={{ color: C.overlay }}>
-                {L === "fr"
-                  ? "Déposez l'énoncé et les annexes — l'agent construit l'environnement complet."
-                  : "Drop the énoncé and annexes — the agent builds the full TP environment."}
-              </p>
-            </div>
+        <header className="mb-6 flex items-center gap-3.5">
+          <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl"
+            style={{ background: `linear-gradient(135deg, ${C.mauve}, ${C.blue})`, color: C.base }}>
+            <Wand2 size={20} />
           </div>
-          <Pill color={status === "done" ? C.green : status === "thinking" ? C.yellow : C.overlay}>
-            <CircleDot size={11} />
-            {status === "idle" ? (L === "fr" ? "En attente" : "Idle")
-              : status === "thinking" ? (L === "fr" ? "Analyse…" : "Analysing…")
-              : (L === "fr" ? "Brouillon prêt" : "Draft ready")}
-          </Pill>
+          <div>
+            <h1 className="text-lg font-semibold leading-tight" style={{ color: C.text }}>
+              {L === "fr" ? "Créateur de TP par l'Agent IA" : "AI Agent TP Creator"}
+            </h1>
+            <p className="text-xs" style={{ color: C.overlay }}>
+              {L === "fr"
+                ? "Choisissez un langage, décrivez le sujet, puis relisez et améliorez le brouillon avant publication."
+                : "Pick a language, describe the topic, then review and enhance the draft before publishing."}
+            </p>
+          </div>
         </header>
 
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[400px_1fr]">
-          {/* ── LEFT ── */}
+          {/* ── LEFT: inputs ── */}
           <div className="space-y-4">
-            {/* Dropzone */}
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={onDrop}
-              onClick={() => inputRef.current?.click()}
-              className="cursor-pointer rounded-2xl p-6 text-center transition-all"
-              style={{
-                background: dragOver ? `${C.mauve}12` : C.surface0,
-                border: `1.5px dashed ${dragOver ? C.mauve : C.surface2}`,
-              }}>
-              <input ref={inputRef} type="file" multiple accept=".pdf,.doc,.docx" className="hidden"
-                onChange={(e) => e.target.files && addFiles(e.target.files)} />
-              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl"
-                style={{ background: `${C.mauve}1f`, color: C.mauve }}>
-                <Upload size={22} />
+            {/* Language selector (mandatory) */}
+            <div className="rounded-2xl p-4" style={{ background: C.surface0, border: `1px solid ${C.surface1}` }}>
+              <label className="mb-2.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtext }}>
+                <Code2 size={13} style={{ color: C.mauve }} />
+                {L === "fr" ? "Langage de programmation" : "Programming language"}
+                <span style={{ color: C.red }}>*</span>
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {LANGUAGES.map((lng) => {
+                  const active = settings.progLang === lng.id;
+                  return (
+                    <button key={lng.id} onClick={() => setSettings({ ...settings, progLang: lng.id })}
+                      className="flex flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-center transition-all"
+                      style={active
+                        ? { background: `${lng.color}26`, border: `1px solid ${lng.color}88`, color: C.text }
+                        : { background: C.mantle, border: `1px solid ${C.surface1}`, color: C.subtext }}>
+                      <span className="text-lg leading-none">{lng.icon}</span>
+                      <span className="text-[11px] font-medium leading-tight">{lng.label}</span>
+                    </button>
+                  );
+                })}
               </div>
-              <p className="text-sm font-medium" style={{ color: C.text }}>
-                {L === "fr" ? "Déposez l'énoncé PDF ici" : "Drop the PDF énoncé here"}
-              </p>
-              <p className="mt-1 text-xs" style={{ color: C.overlay }}>
-                PDF · DOCX — {L === "fr" ? "énoncé et annexes · optionnel" : "énoncé and annexes · optional"}
-              </p>
+              {profile ? (
+                <p className="mt-2.5 flex items-start gap-1.5 text-xs" style={{ color: C.overlay }}>
+                  <CircleDot size={10} className="mt-0.5 shrink-0" style={{ color: profile.color }} />
+                  {profile.ecosystem[L]}
+                </p>
+              ) : (
+                <p className="mt-2.5 text-xs" style={{ color: C.yellow }}>
+                  {L === "fr" ? "Sélection obligatoire avant la génération." : "Required before generation."}
+                </p>
+              )}
             </div>
 
+            {/* Dropzone */}
+            <div onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
+              onDrop={onDrop} onClick={() => inputRef.current?.click()}
+              className="cursor-pointer rounded-2xl p-5 text-center transition-all"
+              style={{ background: dragOver ? `${C.mauve}12` : C.surface0, border: `1.5px dashed ${dragOver ? C.mauve : C.surface2}` }}>
+              <input ref={inputRef} type="file" multiple accept=".pdf,.doc,.docx,.txt,.md" className="hidden"
+                onChange={(e) => e.target.files && addFiles(e.target.files)} />
+              <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-2xl" style={{ background: `${C.mauve}1f`, color: C.mauve }}>
+                <Upload size={18} />
+              </div>
+              <p className="text-sm font-medium" style={{ color: C.text }}>{L === "fr" ? "Déposer un énoncé (optionnel)" : "Drop an énoncé (optional)"}</p>
+              <p className="mt-1 text-xs" style={{ color: C.overlay }}>PDF · DOCX · TXT</p>
+            </div>
             {files.length > 0 && (
               <div className="space-y-2">
                 {files.map((f) => (
-                  <FileCard key={f.id} f={f} lang={L} onToggle={toggleKind} onRemove={removeFile} />
+                  <div key={f.id} className="flex items-center gap-3 rounded-xl p-3" style={{ background: C.mantle, border: `1px solid ${C.surface1}` }}>
+                    <FileText size={16} style={{ color: C.teal }} />
+                    <span className="min-w-0 flex-1 truncate text-sm" style={{ color: C.text }}>{f.name}</span>
+                    <button onClick={() => removeFile(f.id)} style={{ color: C.overlay }}><X size={15} /></button>
+                  </div>
                 ))}
               </div>
             )}
@@ -628,22 +645,14 @@ export default function AgentTPCreatorPage() {
             {/* Prompt */}
             <div className="rounded-2xl p-4" style={{ background: C.surface0, border: `1px solid ${C.surface1}` }}>
               <label className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtext }}>
-                <Sparkles size={13} style={{ color: C.peach }} />
-                {L === "fr" ? "Consigne pour l'agent" : "Prompt for the agent"}
+                <Sparkles size={13} style={{ color: C.peach }} /> {L === "fr" ? "Consigne pour l'agent" : "Prompt for the agent"}
               </label>
-              <textarea
-                value={settings.prompt}
-                onChange={(e) => setSettings({ ...settings, prompt: e.target.value })}
-                rows={4}
-                placeholder={L === "fr"
-                  ? "Décrivez le TP… ex. « Créer une page de profil HTML avec navigation, section héro et formulaire de contact. »"
-                  : "Describe the TP… e.g. \"Build an HTML profile page with navigation, hero section and contact form.\""}
+              <textarea value={settings.prompt} onChange={(e) => setSettings({ ...settings, prompt: e.target.value })} rows={4}
+                placeholder={profile
+                  ? (L === "fr" ? `Ex. « TP ${profile.label} : ${profile.topics.fr[0]} »` : `e.g. "${profile.label} lab: ${profile.topics.en[0]}"`)
+                  : (L === "fr" ? "Décrivez le sujet du TP…" : "Describe the TP topic…")}
                 className="w-full resize-none rounded-xl px-3 py-2.5 text-sm leading-relaxed outline-none"
                 style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.text }} />
-              <p className="mt-2 flex items-center gap-1.5 text-xs" style={{ color: C.overlay }}>
-                <CircleDot size={10} style={{ color: canGenerate ? C.green : C.overlay }} />
-                {L === "fr" ? "Une consigne ou un fichier suffit — les deux peuvent être combinés." : "A prompt or a file is enough — both can be combined."}
-              </p>
             </div>
 
             {/* Settings */}
@@ -651,165 +660,226 @@ export default function AgentTPCreatorPage() {
               <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtext }}>
                 <Sparkles size={13} style={{ color: C.mauve }} /> {L === "fr" ? "Paramètres" : "Settings"}
               </h3>
-
               <Field label={L === "fr" ? "Difficulté" : "Difficulty"} icon={BarChart3}>
                 <Seg value={settings.difficulty} onChange={(v) => setSettings({ ...settings, difficulty: v })}
-                  options={Object.entries(DIFF).map(([k, v]) => ({ v: k, label: v.label[L as "fr" | "en"], c: v.color }))} />
+                  options={(Object.entries(DIFF) as [Settings["difficulty"], typeof DIFF[keyof typeof DIFF]][]).map(([k, v]) => ({ v: k, label: v.label[L], c: v.color }))} />
               </Field>
-
               <Field label={L === "fr" ? `Nombre d'étapes : ${settings.stepCount}` : `Steps: ${settings.stepCount}`} icon={ListChecks}>
-                <input type="range" min={2} max={6} value={settings.stepCount}
-                  onChange={(e) => setSettings({ ...settings, stepCount: +e.target.value })}
-                  className="w-full" style={{ accentColor: C.mauve }} />
+                <input type="range" min={2} max={8} value={settings.stepCount}
+                  onChange={(e) => setSettings({ ...settings, stepCount: +e.target.value })} className="w-full" style={{ accentColor: C.mauve }} />
               </Field>
-
-              <Field label={L === "fr" ? "Langue" : "Language"} icon={Languages}>
-                <Seg value={settings.language} onChange={(v) => setSettings({ ...settings, language: v })}
+              <Field label={L === "fr" ? `Questions par étape : ${settings.questionCount}` : `Questions per step: ${settings.questionCount}`} icon={GraduationCap}>
+                <input type="range" min={1} max={6} value={settings.questionCount}
+                  onChange={(e) => setSettings({ ...settings, questionCount: +e.target.value })} className="w-full" style={{ accentColor: C.green }} />
+              </Field>
+              <Field label={L === "fr" ? "Langue du contenu" : "Content language"} icon={Languages}>
+                <Seg value={settings.uiLang} onChange={(v) => setSettings({ ...settings, uiLang: v })}
                   options={[{ v: "fr", label: "Français", c: C.blue }, { v: "en", label: "English", c: C.blue }]} />
               </Field>
-
               <button onClick={() => setSettings({ ...settings, antiCheat: !settings.antiCheat })}
-                className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors"
-                style={{ background: C.mantle, border: `1px solid ${C.surface1}` }}>
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm" style={{ background: C.mantle, border: `1px solid ${C.surface1}` }}>
                 <span className="flex items-center gap-2" style={{ color: C.text }}>
                   <ShieldCheck size={15} style={{ color: settings.antiCheat ? C.green : C.overlay }} />
-                  {L === "fr" ? "Anti-triche (copier-coller désactivé)" : "Anti-cheat (paste disabled)"}
+                  {L === "fr" ? "Anti-triche (copier-coller off)" : "Anti-cheat (paste off)"}
                 </span>
-                <span className="relative h-5 w-9 rounded-full transition-colors"
-                  style={{ background: settings.antiCheat ? C.green : C.surface2 }}>
-                  <span className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all"
-                    style={{ left: settings.antiCheat ? "18px" : "2px" }} />
+                <span className="relative h-5 w-9 rounded-full" style={{ background: settings.antiCheat ? C.green : C.surface2 }}>
+                  <span className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all" style={{ left: settings.antiCheat ? "18px" : "2px" }} />
                 </span>
               </button>
-
-              <button onClick={generate} disabled={!canGenerate || status === "thinking"}
+              <button onClick={generate} disabled={!canGenerate || generating}
                 className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all"
                 style={{
-                  background: !canGenerate || status === "thinking" ? C.surface1 : `linear-gradient(135deg, ${C.mauve}, ${C.blue})`,
-                  color: !canGenerate || status === "thinking" ? C.overlay : C.base,
-                  cursor: !canGenerate || status === "thinking" ? "not-allowed" : "pointer",
-                  boxShadow: canGenerate && status !== "thinking" ? `0 8px 24px -8px ${C.mauve}88` : "none",
+                  background: !canGenerate || generating ? C.surface1 : `linear-gradient(135deg, ${C.mauve}, ${C.blue})`,
+                  color: !canGenerate || generating ? C.overlay : C.base,
+                  cursor: !canGenerate || generating ? "not-allowed" : "pointer",
                 }}>
-                {status === "thinking"
+                {generating
                   ? (<><Loader2 size={16} className="animate-spin" /> {L === "fr" ? "Génération…" : "Generating…"}</>)
-                  : (<><Wand2 size={16} /> {tp ? (L === "fr" ? "Régénérer" : "Regenerate") : (L === "fr" ? "Générer l'environnement" : "Generate environment")}</>)}
+                  : (<><Wand2 size={16} /> {tp ? (L === "fr" ? "Régénérer le brouillon" : "Regenerate draft") : (L === "fr" ? "Générer le brouillon" : "Generate draft")}</>)}
               </button>
+              {!profile && (
+                <p className="text-center text-xs" style={{ color: C.yellow }}>
+                  {L === "fr" ? "Choisissez d'abord un langage." : "Choose a language first."}
+                </p>
+              )}
             </div>
-
-            {/* Agent log */}
-            {log.length > 0 && (
-              <div className="space-y-2.5 rounded-2xl p-4" style={{ background: C.surface0, border: `1px solid ${C.surface1}` }}>
-                <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtext }}>
-                  <Bot size={13} style={{ color: C.teal }} /> {L === "fr" ? "Activité de l'agent" : "Agent activity"}
-                </h3>
-                {log.map((e, i) => {
-                  const Icon = e.icon;
-                  return (
-                    <div key={i} className="rise flex items-center gap-2.5 text-sm" style={{ color: C.text }}>
-                      <Icon size={15} style={{ color: e.color }} />
-                      <span>{e.t}</span>
-                    </div>
-                  );
-                })}
-                {status === "thinking" && (
-                  <div className="flex items-center gap-2.5 text-sm" style={{ color: C.overlay }}>
-                    <Loader2 size={15} className="animate-spin" style={{ color: C.mauve }} />
-                    <span style={{ animation: "glowPulse 1.4s infinite" }}>{L === "fr" ? "réflexion…" : "thinking…"}</span>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
-          {/* ── RIGHT: generated TP ── */}
+          {/* ── RIGHT: draft + HITL review ── */}
           <div className="rounded-2xl p-5 md:p-6" style={{ background: C.surface0, border: `1px solid ${C.surface1}`, minHeight: 520 }}>
             {!tp ? (
               <div className="flex h-full min-h-[460px] flex-col items-center justify-center text-center">
-                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl"
-                  style={{ background: `${C.mauve}14`, color: C.mauve }}>
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl" style={{ background: `${C.mauve}14`, color: C.mauve }}>
                   <GraduationCap size={30} />
                 </div>
                 <h2 className="text-base font-semibold" style={{ color: C.text }}>
-                  {L === "fr" ? "L'environnement de TP apparaîtra ici" : "The TP environment appears here"}
+                  {L === "fr" ? "Le brouillon de TP apparaîtra ici" : "The TP draft appears here"}
                 </h2>
                 <p className="mt-1.5 max-w-sm text-sm" style={{ color: C.overlay }}>
                   {L === "fr"
-                    ? "Déposez un énoncé, ajustez les paramètres, puis lancez l'agent. Le brouillon généré sera entièrement modifiable avant publication."
-                    : "Drop an énoncé, tune the settings, then run the agent. The generated draft is fully editable before publishing."}
+                    ? "Sélectionnez un langage, décrivez le sujet, puis lancez l'agent. Le brouillon est entièrement modifiable et peut être amélioré par l'IA avant publication."
+                    : "Select a language, describe the topic, then run the agent. The draft is fully editable and can be AI-enhanced before publishing."}
                 </p>
               </div>
             ) : (
-              <div className="rise space-y-5">
+              <div className="rise space-y-4">
+                {/* Status pipeline */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {STATUS_FLOW.map((s, i) => {
+                    const done = i < statusIndex, current = i === statusIndex;
+                    const col = current ? C.mauve : done ? C.green : C.overlay;
+                    return (
+                      <React.Fragment key={s.id}>
+                        <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium"
+                          style={{ background: current ? `${col}26` : "transparent", color: col, border: `1px solid ${current ? col + "66" : "transparent"}` }}>
+                          {done ? <Check size={11} /> : <CircleDot size={11} />} {s.label[L]}
+                        </span>
+                        {i < STATUS_FLOW.length - 1 && <span style={{ color: C.surface2 }}>→</span>}
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+
+                {/* Draft banner */}
+                {tp.status === "draft" && (
+                  <div className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium"
+                    style={{ background: `${C.yellow}14`, color: C.yellow, border: `1px solid ${C.yellow}3a` }}>
+                    <Sparkles size={13} /> {L === "fr" ? "Brouillon IA — Relecture enseignant requise" : "AI Draft — Requires Teacher Review"}
+                    {usedLocal && <span style={{ color: C.overlay }}>· {L === "fr" ? "mode hors-ligne" : "offline mode"}</span>}
+                  </div>
+                )}
+                {notice && (
+                  <div className="rounded-xl px-3 py-2 text-xs" style={{ background: `${C.blue}14`, color: C.blue, border: `1px solid ${C.blue}3a` }}>
+                    {notice}
+                  </div>
+                )}
+
+                {/* Title + meta */}
                 <div className="space-y-3">
-                  <input value={tp.title} onChange={(e) => setTp({ ...tp, title: e.target.value })}
-                    className="w-full bg-transparent text-xl font-semibold outline-none"
-                    style={{ color: C.text }} />
+                  <input value={tp.title} onChange={(e) => editTP((t) => ({ ...t, title: e.target.value }))}
+                    className="w-full bg-transparent text-xl font-semibold outline-none" style={{ color: C.text }} />
                   <div className="flex flex-wrap items-center gap-2">
-                    <Pill color={DIFF[tp.difficulty as keyof typeof DIFF].color}>
-                      <BarChart3 size={12} /> {DIFF[tp.difficulty as keyof typeof DIFF].label[L as "fr" | "en"]}
-                    </Pill>
+                    <Pill color={profile?.color ?? C.mauve}>{profile?.icon} {profile?.label}</Pill>
+                    <Pill color={DIFF[tp.difficulty].color}><BarChart3 size={12} /> {DIFF[tp.difficulty].label[L]}</Pill>
                     <Pill color={C.peach}><Clock size={12} /> {tp.estimatedMinutes} min</Pill>
                     <Pill color={C.blue}><ListChecks size={12} /> {tp.steps.length} {L === "fr" ? "étapes" : "steps"}</Pill>
                     {tp.antiCheat && <Pill color={C.green}><ShieldCheck size={12} /> Anti-cheat</Pill>}
                   </div>
-                  <textarea value={tp.description} onChange={(e) => setTp({ ...tp, description: e.target.value })}
+                  <textarea value={tp.description} onChange={(e) => editTP((t) => ({ ...t, description: e.target.value }))}
                     rows={2} className="w-full resize-none rounded-lg px-3 py-2 text-sm outline-none"
                     style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.subtext }} />
+                  <div className="flex gap-2">
+                    <input value={tp.field} onChange={(e) => editTP((t) => ({ ...t, field: e.target.value }))}
+                      placeholder={L === "fr" ? "Module / discipline" : "Module / field"}
+                      className="flex-1 rounded-lg px-3 py-1.5 text-sm outline-none" style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.text }} />
+                    <input type="number" value={tp.estimatedMinutes} onChange={(e) => editTP((t) => ({ ...t, estimatedMinutes: Number(e.target.value) || 0 }))}
+                      className="w-24 rounded-lg px-3 py-1.5 text-sm outline-none" style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.text }} />
+                  </div>
                 </div>
 
-                <div>
-                  <span className="mb-1.5 flex items-center gap-1.5 text-xs font-medium" style={{ color: C.subtext }}>
-                    <Code2 size={13} style={{ color: C.yellow }} /> {L === "fr" ? "Code HTML de départ" : "Starter HTML"}
-                  </span>
-                  <textarea value={tp.starterHTML} onChange={(e) => setTp({ ...tp, starterHTML: e.target.value })}
-                    rows={6} spellCheck={false}
+                {/* Context */}
+                <SectionCard icon={ScrollText} color={C.teal} title={L === "fr" ? "Contexte / Problème" : "Context / Problem"}
+                  action={<RegenButton busy={regen === "context"} onClick={() => regenerate("context")} lang={L} />}>
+                  <textarea value={tp.content.context} onChange={(e) => editContent("context", e.target.value)} rows={3}
+                    className="w-full resize-none rounded-lg px-3 py-2 text-sm outline-none" style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.text }} />
+                </SectionCard>
+
+                {/* Objectives + Prerequisites */}
+                <div className="grid gap-4 md:grid-cols-2">
+                  <SectionCard icon={Target} color={C.mauve} title={L === "fr" ? "Objectifs pédagogiques" : "Learning objectives"}
+                    action={<RegenButton busy={regen === "objectives"} onClick={() => regenerate("objectives")} lang={L} />}>
+                    <ListEditor items={tp.content.objectives} onChange={(v) => editContent("objectives", v)} lang={L} placeholder={L === "fr" ? "Objectif" : "Objective"} />
+                  </SectionCard>
+                  <SectionCard icon={Boxes} color={C.blue} title={L === "fr" ? "Prérequis" : "Prerequisites"}
+                    action={<RegenButton busy={regen === "prerequisites"} onClick={() => regenerate("prerequisites")} lang={L} />}>
+                    <ListEditor items={tp.content.prerequisites} onChange={(v) => editContent("prerequisites", v)} lang={L} placeholder={L === "fr" ? "Prérequis" : "Prerequisite"} />
+                  </SectionCard>
+                </div>
+
+                {/* Tools */}
+                <SectionCard icon={Wrench} color={C.peach} title={L === "fr" ? "Outils / Environnement" : "Required tools / Environment"}
+                  action={<RegenButton busy={regen === "tools"} onClick={() => regenerate("tools")} lang={L} />}>
+                  <ListEditor items={tp.content.tools} onChange={(v) => editContent("tools", v)} lang={L} placeholder={L === "fr" ? "Outil" : "Tool"} />
+                </SectionCard>
+
+                {/* Starter code */}
+                <SectionCard icon={Terminal} color={C.yellow}
+                  title={L === "fr" ? `Code de départ (${profile?.label})` : `Starter code (${profile?.label})`}
+                  action={<RegenButton busy={regen === "starter"} onClick={() => regenerate("starter")} lang={L} />}>
+                  <textarea value={tp.starterHTML} onChange={(e) => editTP((t) => ({ ...t, starterHTML: e.target.value }))} rows={8} spellCheck={false}
                     className="font-mono w-full resize-none rounded-xl px-3 py-2.5 text-xs leading-relaxed outline-none"
                     style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.green }} />
-                </div>
+                </SectionCard>
 
-                <div className="space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: C.subtext }}>
-                      <ListChecks size={13} style={{ color: C.mauve }} /> {L === "fr" ? "Étapes du TP" : "TP steps"}
-                    </span>
-                    <button onClick={addStep} className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium"
-                      style={{ background: `${C.mauve}1f`, color: C.mauve, border: `1px solid ${C.mauve}3a` }}>
-                      <Plus size={13} /> {L === "fr" ? "Étape" : "Step"}
-                    </button>
+                {/* Steps */}
+                <SectionCard icon={ListChecks} color={C.mauve} title={L === "fr" ? "Étapes & QCM" : "Steps & quiz"}
+                  action={
+                    <div className="flex items-center gap-1.5">
+                      <RegenButton busy={regen === "quiz"} onClick={() => regenerate("quiz")} lang={L} />
+                      <RegenButton busy={regen === "steps"} onClick={() => regenerate("steps")} lang={L} />
+                      <button onClick={() => editTP((t) => ({ ...t, steps: [...t.steps, { id: uid(), title: "", instructions: "", requiredTags: [], quiz: [] }] }))}
+                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium" style={{ background: `${C.mauve}1f`, color: C.mauve }}>
+                        <Plus size={12} /> {L === "fr" ? "Étape" : "Step"}
+                      </button>
+                    </div>
+                  }>
+                  <div className="space-y-2.5">
+                    {tp.steps.map((s, i) => (
+                      <StepCard key={s.id} step={s} index={i} lang={L} reqLabel={reqLabel}
+                        onChange={(ns) => editTP((t) => ({ ...t, steps: t.steps.map((x, xi) => (xi === i ? ns : x)) }))}
+                        onRemove={() => editTP((t) => ({ ...t, steps: t.steps.filter((_, xi) => xi !== i) }))} />
+                    ))}
                   </div>
-                  {tp.steps.map((s, i) => (
-                    <StepCard key={s.id} step={s} index={i} lang={L}
-                      onChange={(ns) => setStep(i, ns)}
-                      onRemove={() => setTp((p) => p ? ({ ...p, steps: p.steps.filter((_, x) => x !== i) }) : p)} />
-                  ))}
+                </SectionCard>
+
+                {/* Expected output + Constraints */}
+                <div className="grid gap-4 md:grid-cols-2">
+                  <SectionCard icon={Code2} color={C.green} title={L === "fr" ? "Sortie attendue" : "Expected output"}
+                    action={<RegenButton busy={regen === "expectedOutput"} onClick={() => regenerate("expectedOutput")} lang={L} />}>
+                    <textarea value={tp.content.expectedOutput} onChange={(e) => editContent("expectedOutput", e.target.value)} rows={3}
+                      className="w-full resize-none rounded-lg px-3 py-2 text-sm outline-none" style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.text }} />
+                  </SectionCard>
+                  <SectionCard icon={ShieldCheck} color={C.red} title={L === "fr" ? "Contraintes" : "Constraints"}
+                    action={<RegenButton busy={regen === "constraints"} onClick={() => regenerate("constraints")} lang={L} />}>
+                    <ListEditor items={tp.content.constraints} onChange={(v) => editContent("constraints", v)} lang={L} placeholder={L === "fr" ? "Contrainte" : "Constraint"} />
+                  </SectionCard>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 border-t pt-4" style={{ borderColor: C.surface1 }}>
-                  <button onClick={generate}
-                    className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-sm font-medium"
-                    style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: C.subtext }}>
-                    <RefreshCw size={14} /> {L === "fr" ? "Régénérer" : "Regenerate"}
+                {/* Evaluation rubric */}
+                <SectionCard icon={Gauge} color={C.yellow} title={L === "fr" ? "Critères d'évaluation (barème)" : "Evaluation criteria (rubric)"}
+                  action={<RegenButton busy={regen === "evaluationCriteria"} onClick={() => regenerate("evaluationCriteria")} lang={L} />}>
+                  <RubricEditor items={tp.content.evaluationCriteria} onChange={(v) => editContent("evaluationCriteria", v)} lang={L} />
+                </SectionCard>
+
+                {/* Bonus */}
+                <SectionCard icon={Trophy} color={C.teal} title={L === "fr" ? "Défis bonus / Extensions" : "Bonus challenges / Extensions"}
+                  action={<RegenButton busy={regen === "bonus"} onClick={() => regenerate("bonus")} lang={L} />}>
+                  <ListEditor items={tp.content.bonus} onChange={(v) => editContent("bonus", v)} lang={L} placeholder={L === "fr" ? "Bonus" : "Bonus"} />
+                </SectionCard>
+
+                {/* Action bar */}
+                <div className="sticky bottom-0 -mx-5 flex flex-wrap items-center gap-2 border-t px-5 pb-1 pt-4 md:-mx-6 md:px-6"
+                  style={{ borderColor: C.surface1, background: C.surface0 }}>
+                  <button onClick={enhance} disabled={enhancing}
+                    className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-sm font-semibold"
+                    style={{ background: `linear-gradient(135deg, ${C.peach}, ${C.yellow})`, color: C.base, opacity: enhancing ? 0.7 : 1 }}>
+                    {enhancing ? <Loader2 size={14} className="animate-spin" /> : <Lightbulb size={14} />}
+                    {L === "fr" ? "Améliorer le TP" : "Enhance TP"}
                   </button>
                   <button onClick={exportJSON}
                     className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-sm font-medium"
                     style={{ background: C.mantle, border: `1px solid ${C.surface1}`, color: copied ? C.green : C.subtext }}>
-                    {copied ? <Check size={14} /> : <Download size={14} />}
-                    {copied ? (L === "fr" ? "JSON copié" : "JSON copied") : "Export JSON"}
+                    {copied ? <Check size={14} /> : <Download size={14} />} {copied ? (L === "fr" ? "Copié" : "Copied") : "Export JSON"}
                   </button>
-                  <button onClick={handlePublish}
-                    disabled={published}
+                  <button onClick={handlePublish} disabled={published}
                     className="ml-auto inline-flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-sm font-semibold transition-all"
                     style={{
-                      background: published
-                        ? C.surface1
-                        : `linear-gradient(135deg, ${C.green}, ${C.teal})`,
-                      color: published ? C.overlay : C.base,
-                      boxShadow: published ? "none" : `0 8px 24px -8px ${C.green}88`,
-                      cursor: published ? "not-allowed" : "pointer",
+                      background: published ? C.surface1 : `linear-gradient(135deg, ${C.green}, ${C.teal})`,
+                      color: published ? C.overlay : C.base, cursor: published ? "not-allowed" : "pointer",
                     }}>
                     {published
                       ? (<><Check size={15} /> {L === "fr" ? "Publié !" : "Published!"}</>)
-                      : (<><FileCheck2 size={15} /> {L === "fr" ? "Publier le TP" : "Publish TP"}</>)}
+                      : (<><FileCheck2 size={15} /> {L === "fr" ? "Approuver & Publier" : "Approve & Publish"}</>)}
                   </button>
                 </div>
               </div>

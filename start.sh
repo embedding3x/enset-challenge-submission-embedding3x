@@ -45,7 +45,7 @@ banner() {
 ╔═══════════════════════════════════════════════════════════════╗
 ║          Agentic TP Platform — Development Start              ║
 ║                                                               ║
-║  Agents: Mistral · deepseek-coder · gemma4 · deepseek-v3.2   ║
+║  Agents: Mistral·deepseek-coder·gemma4·deepseek-v3.2·qwen   ║
 ║  Backend: Spring Boot + Spring Cloud (optional)               ║
 ║  Frontend: Next.js 14                                         ║
 ╚═══════════════════════════════════════════════════════════════╝
@@ -59,12 +59,25 @@ port_in_use() { lsof -i ":$1" -sTCP:LISTEN -t &>/dev/null 2>&1; }
 free_port() {
     local port="$1"
     if port_in_use "$port"; then
-        local pid
-        pid=$(lsof -ti ":$port" 2>/dev/null | head -1)
-        if [ -n "$pid" ]; then
-            kill "$pid" 2>/dev/null || true
-            sleep 0.5
-            info "Freed port $port (was PID $pid)"
+        local pids
+        pids=$(lsof -ti ":$port" -sTCP:LISTEN 2>/dev/null)
+        if [ -n "$pids" ]; then
+            kill $pids 2>/dev/null || true
+            # Verify the port is actually released; escalate to SIGKILL if not.
+            local waited=0
+            while port_in_use "$port" && [ "$waited" -lt 6 ]; do
+                sleep 0.5
+                waited=$((waited + 1))
+            done
+            if port_in_use "$port"; then
+                kill -9 $pids 2>/dev/null || true
+                sleep 0.5
+            fi
+            if port_in_use "$port"; then
+                warn "Port $port still in use after SIGKILL (PIDs: $pids)"
+            else
+                info "Freed port $port (was PID $pids)"
+            fi
         fi
     fi
 }
@@ -198,12 +211,14 @@ main() {
     HINT_MODEL="${HINT_AGENT_MODEL:-deepseek-coder:6.7b}"
     EVAL_MODEL="${EVALUATION_AGENT_MODEL:-gemma4:31b-cloud}"
     ORCH_MODEL="${ORCHESTRATOR_MODEL:-deepseek-v3.2:cloud}"
+    CREATOR_MODEL="${CREATOR_AGENT_MODEL:-qwen2.5-coder:latest}"
     EMBED_MODEL="${RAG_EMBED_MODEL:-nomic-embed-text}"
 
     info "Explanation agent model : ${BOLD}${EXPL_MODEL}${NC}"
     info "Hint agent model        : ${BOLD}${HINT_MODEL}${NC}"
     info "Evaluation agent model  : ${BOLD}${EVAL_MODEL}${NC}"
     info "Orchestrator model      : ${BOLD}${ORCH_MODEL}${NC}"
+    info "Creator agent model     : ${BOLD}${CREATOR_MODEL}${NC}"
     info "RAG embedding model     : ${BOLD}${EMBED_MODEL}${NC}"
     info "Ollama URL              : ${BOLD}${OLLAMA_URL}${NC}"
 
@@ -244,6 +259,7 @@ print('\n'.join(names))
         check_model "$HINT_MODEL" "Hint agent       "
         check_model "$EVAL_MODEL" "Evaluation agent "
         check_model "$ORCH_MODEL" "Orchestrator     "
+        check_model "$CREATOR_MODEL" "Creator agent    "
         check_model "$EMBED_MODEL" "RAG embeddings   "
     else
         warn "Ollama not responding at ${OLLAMA_URL}"
@@ -273,7 +289,10 @@ print('\n'.join(names))
         "$ROOT/agents/hint-agent/requirements.txt" \
         "$ROOT/agents/evaluation-agent/requirements.txt" \
         "$ROOT/agents/orchestrator/requirements.txt" \
+        "$ROOT/agents/creator-agent/requirements.txt" \
         "$ROOT/backend/agent-gateway/requirements.txt" \
+        "$ROOT/backend/rag-service/requirements.txt" \
+        "$ROOT/backend/validation-service/requirements.txt" \
         2>/dev/null | sort -u > "$COMBINED_REQS"
 
     "$VENV/bin/pip" install --quiet -r "$COMBINED_REQS"
@@ -294,7 +313,7 @@ print('\n'.join(names))
 
     # ── 6. Free occupied ports ────────────────────────────────────────────────
     section "Freeing Ports"
-    for port in 8000 8001 8002 8003 8004 3000; do
+    for port in 8000 8001 8002 8003 8004 8005 8006 8007 3000; do
         free_port "$port"
     done
     if [ "$JAVA_OK" = true ]; then
@@ -315,8 +334,18 @@ print('\n'.join(names))
     sleep 0.5
     start_python "orchestrator"      "agents/orchestrator"      "8004"
     sleep 0.5
+    start_python "creator-agent"     "agents/creator-agent"     "8007"
+    sleep 0.5
 
-    # ── 8. Start Agent Gateway ─────────────────────────────────────────────────
+    # ── 8. Start RAG + Validation Services + Agent Gateway ────────────────────
+    section "Starting RAG Service"
+    start_python "rag-service" "backend/rag-service" "8005"
+    sleep 0.5
+
+    section "Starting Validation Service"
+    start_python "validation-service" "backend/validation-service" "8006"
+    sleep 0.5
+
     section "Starting Agent Gateway"
     start_python "agent-gateway" "backend/agent-gateway" "8000"
     sleep 0.5
@@ -360,11 +389,14 @@ print('\n'.join(names))
 
     wait_for_health "tp-service"        "http://localhost:8082/api/tp/health"       60 || true
     wait_for_health "api-gateway"       "http://localhost:8080/api/gateway/health"  60 || true
+    wait_for_health "rag-service"        "http://localhost:8005/health" 60 || true
+    wait_for_health "validation-service" "http://localhost:8006/health" 60 || true
     wait_for_health "agent-gateway"     "http://localhost:8000/health" 60 || true
     wait_for_health "explanation-agent" "http://localhost:8001/health" 60 || true
     wait_for_health "hint-agent"        "http://localhost:8002/health" 60 || true
     wait_for_health "evaluation-agent"  "http://localhost:8003/health" 60 || true
     wait_for_health "orchestrator"      "http://localhost:8004/health" 60 || true
+    wait_for_health "creator-agent"     "http://localhost:8007/health" 60 || true
     wait_for_health "frontend"          "http://localhost:3000"        90 || true
 
     # ── 12. Status dashboard ───────────────────────────────────────────────────
@@ -379,6 +411,9 @@ print('\n'.join(names))
     show_status "hint-agent"         "http://localhost:8002/health" "8002" "$HINT_MODEL"
     show_status "evaluation-agent"   "http://localhost:8003/health" "8003" "$EVAL_MODEL"
     show_status "orchestrator"       "http://localhost:8004/health" "8004" "$ORCH_MODEL"
+    show_status "creator-agent"      "http://localhost:8007/health" "8007" "$CREATOR_MODEL"
+    show_status "rag-service"        "http://localhost:8005/health" "8005" "$EMBED_MODEL"
+    show_status "validation-service" "http://localhost:8006/health" "8006"
     show_status "agent-gateway"      "http://localhost:8000/health" "8000"
 
     echo ""

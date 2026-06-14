@@ -1,7 +1,5 @@
 """
-Real RAG pipeline for the Agent Gateway.
-
-Replaces the previous "store-an-excerpt" stub with a genuine vector pipeline:
+Vector pipeline for the standalone RAG Service:
 
   document  →  text extraction (PDF / DOCX / TXT / MD)
             →  chunking

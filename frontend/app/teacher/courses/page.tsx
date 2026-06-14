@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
+import { courseService, Course } from "@/services/courseService";
 import {
   Upload, FileText, Trash2, X, BookOpen, CheckCircle2,
   Loader2, ArrowLeft, Database, Search, RefreshCw, AlertCircle,
@@ -9,26 +10,14 @@ import {
 } from "lucide-react";
 
 const C = {
-  base: "#1a1a2e", mantle: "#181825", surface0: "#1e1e2e",
-  surface1: "#313244", surface2: "#45475a", overlay: "#6c7086",
-  text: "#cdd6f4", subtext: "#a6adc8",
-  mauve: "#cba6f7", blue: "#89b4fa", green: "#a6e3a1",
-  red: "#f38ba8", yellow: "#f9e2af", peach: "#fab387", teal: "#94e2d5",
+  base: "#141724", mantle: "#181b2b", surface0: "#1e2235",
+  surface1: "#2a2f4c", surface2: "#4a5170", overlay: "#8b92b2",
+  text: "#e2e8f0", subtext: "#b6bdd9",
+  mauve: "#c084fc", blue: "#60a5fa", green: "#34d399",
+  red: "#f87171", yellow: "#fbbf24", peach: "#fb923c", teal: "#2dd4bf",
 };
 
 const COURSES_KEY = "agentic_tp_courses";
-const AGENT_BASE =
-  process.env.NEXT_PUBLIC_AGENT_GATEWAY_URL ?? "http://localhost:8000";
-
-interface Course {
-  id: string;
-  name: string;
-  size: number;
-  uploadedAt: string;
-  status: "indexing" | "indexed" | "error";
-  chunks?: number;
-  subject?: string;
-}
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -121,15 +110,12 @@ export default function CoursesPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Source of truth is the backend vector store; localStorage is just a cache.
+      // Source of truth is the RAG service's store; localStorage is just a cache.
       try {
-        const res = await fetch(`${AGENT_BASE}/api/agents/courses`);
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled && Array.isArray(data.courses)) {
-            saveCourses(data.courses as Course[]);
-            return;
-          }
+        const list = await courseService.list();
+        if (!cancelled) {
+          saveCourses(list);
+          return;
         }
       } catch { /* fall back to cache below */ }
       if (cancelled || typeof window === "undefined") return;
@@ -172,19 +158,8 @@ export default function CoursesPage() {
       const file = fileArray[i];
       const courseId = incoming[i].id;
       try {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("course_id", courseId);
-        const res = await fetch(`${AGENT_BASE}/api/agents/courses/upload`, {
-          method: "POST",
-          body: formData,
-        });
-        if (res.ok) {
-          const { course } = await res.json();
-          working = upsert(working, course as Course);
-        } else {
-          working = upsert(working, { ...incoming[i], status: "error" });
-        }
+        const course = await courseService.upload(file, courseId);
+        working = upsert(working, course);
       } catch {
         working = upsert(working, { ...incoming[i], status: "error" });
       }
@@ -203,23 +178,20 @@ export default function CoursesPage() {
   const deleteCourse = async (id: string) => {
     saveCourses(courses.filter((c) => c.id !== id));
     try {
-      await fetch(`${AGENT_BASE}/api/agents/courses/${id}`, { method: "DELETE" });
+      await courseService.remove(id);
     } catch { /* already removed from UI */ }
   };
 
   const reindex = async (id: string) => {
     saveCourses(courses.map((c) => c.id === id ? { ...c, status: "indexing" as const, chunks: undefined } : c));
     try {
-      const res = await fetch(`${AGENT_BASE}/api/agents/courses/${id}/reindex`, { method: "POST" });
-      if (res.ok) {
-        const { course } = await res.json();
-        setCourses((prev) => {
-          const updated = upsert(prev, course as Course);
-          if (typeof window !== "undefined") localStorage.setItem(COURSES_KEY, JSON.stringify(updated));
-          return updated;
-        });
-        return;
-      }
+      const course = await courseService.reindex(id);
+      setCourses((prev) => {
+        const updated = upsert(prev, course);
+        if (typeof window !== "undefined") localStorage.setItem(COURSES_KEY, JSON.stringify(updated));
+        return updated;
+      });
+      return;
     } catch { /* fall through to error state */ }
     setCourses((prev) => {
       const updated = prev.map((c) => c.id === id ? { ...c, status: "error" as const } : c);
